@@ -66,6 +66,8 @@ We realized that neither attention nor convolutions can replace the governing eq
     - **Graph Construction**: Each grid cell is a node connected to immediate neighbors (N, S, E, W).
     - **PhysicsFluxLayer**: Implements custom message-passing where message weight is derived from the **wind projection** along the edge, effectively simulating physical flux.
     - **Physics-Informed Loss**: Integrates a residual loss based on the Advection equation ($L = dC/dt + u\cdot\nabla C$).
+    - **Scientific Constraints**: Implements a `Softplus` activation on the final output to ensure strictly non-negative PM10 concentrations.
+    - **Loss Balancing**: Uses **Homoscedastic Uncertainty Weighting** to automatically learn the optimal balance between supervised data loss and physics residual loss.
 
 ![PhysicsFluxLayer message-passing](results/pi_gnn_architecture.png)
 *PhysicsFluxLayer implementation for wind-projected message passing and physical constraints.*
@@ -112,10 +114,23 @@ The models were evaluated on the Year 2007 validation set using meteorological d
 
 ---
 
+## Data Acquisition
+
+The project includes a robust pipeline for fetching meteorological and atmospheric data from ECMWF (ERA5/CAMS).
+
+1.  **Environment Setup**: Ensure you have an API key configured for the CDS (Climate Data Store).
+2.  **Full Download**: Run `python experiments/download_full_data.py` to fetch the primary dataset.
+3.  **Resilient Download**: For large requests or unstable connections, use `python experiments/download_chunked.py` which handles monthly partitioning and retries.
+4.  **Verification**: Use `python experiments/verify_env.py` to ensure all dependencies and data paths are correctly configured.
+
+---
+
 ## Dataset Details
 - **Source**: ERA5 Reanalysis (Meteorological Features) & CAMS Reanalysis (PM10 Target).
 - **Spatial Resolution**: 0.75° x 0.75° grid (7x12 region).
 - **Temporal Resolution**: 12-hour intervals.
+- **Preprocessing**: Target PM10 values are **log-transformed** ($\log(1+x)$) to stabilize variance.
+- **Feature Engineering**: Includes cyclic encoding (Sine/Cosine) for temporal features (Hour/Month).
 - **Time Period**: 2003–2006 training, 2007 validation.
 - **Variables**: PM10 dust concentration, U10/V10 wind components, 2m Temperature (T2M).
 
@@ -143,7 +158,12 @@ repo/
 ├── experiments/            # Research scripts
 │    ├── legacy_models/     # Phase 1 & 2 historical architectures
 │    ├── train_model.py     # Main PI-GNN training entry point
-│    └── benchmark.py       # Production evaluation suite
+│    ├── benchmark.py       # Production evaluation suite
+│    ├── download_full_data.py # Data acquisition script
+│    ├── download_chunked.py   # Resilient partitioned downloader
+│    ├── debug_loss.py      # Physics loss visualization utility
+│    ├── inspect_data.py    # NC file inspector
+│    └── verify_env.py      # Environment setup validator
 ├── notebooks/              # Jupyter notebooks for data exploration
 ├── results/                # Visualizations, diagrams, and logs
 └── diagrams/               # Detailed architecture documentation
@@ -156,6 +176,7 @@ The experiments can be reproduced as follows:
     ```bash
     pip install -r requirements.txt
     ```
+    *Note: `pennylane` is required specifically for the Quantum components used in Phase 1 & 2.*
 2.  **Configuration**: Adjust data paths in `configs/default_config.yaml`.
 3.  **Training**: Run `python experiments/train_model.py` to train the final PI-GNN model.
 4.  **Evaluation**: Use `python experiments/benchmark.py` to compare against baselines.
