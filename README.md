@@ -120,11 +120,6 @@ The models were evaluated on the Year 2007 validation set using meteorological d
 - **Variables**: PM10 dust concentration, U10/V10 wind components, 2m Temperature (T2M).
 
 ---
-
-### Try it instantly
-[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/Ziadt160/PI-GNN-Dust/blob/main/notebooks/exploration.ipynb)
-*(Launch the interactive research exploration notebook directly in your browser.)*
-
 ### Computational Cost
 - **Hardware used**: NVIDIA T4 GPU (Google Colab Environment).
 - **Training time**: ~1.5 GPU hours for total model selection (30+ epochs per phase).
