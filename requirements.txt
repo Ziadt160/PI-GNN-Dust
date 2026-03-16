@@ -1,0 +1,13 @@
+torch
+torch-geometric
+xarray
+numpy<2.0
+pandas
+matplotlib
+tqdm
+pyyaml
+netcdf4
+scikit-learn
+cartopy
+pennylane>=0.42
+jupyter

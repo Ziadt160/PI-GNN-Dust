@@ -1,0 +1,19 @@
+data:
+  dir: "d:/Quantum Projects/DustProject/data"
+  sfc_file: "data_sfc.nc"
+
+training:
+  batch_size: 32
+  epochs: 50
+  learning_rate: 0.001
+  years: [2003, 2004, 2005, 2006]
+
+validation:
+  years: [2007]
+
+physics:
+  delta_t: 43200 # 12 hours in seconds
+  dx: 83000.0
+  dy: 83000.0
+  lat_dim: 7
+  lon_dim: 12

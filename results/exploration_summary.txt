@@ -1,0 +1,22 @@
+Data Exploration Summary
+========================
+Dataset: <xarray.Dataset> Size: 22MB
+Dimensions:     (valid_time: 64288, latitude: 7, longitude: 12)
+Coordinates:
+  * valid_time  (valid_time) datetime64[ns] 514kB 2003-01-01 ... 2024-12-31T2...
+  * latitude    (latitude) float64 56B 28.5 27.75 27.0 26.25 25.5 24.75 24.0
+  * longitude   (longitude) float64 96B 47.0 47.75 48.5 ... 53.75 54.5 55.25
+Data variables:
+    pm10        (valid_time, latitude, longitude) float32 22MB 4.916e-08 ... ...
+Attributes:
+    GRIB_centre:             ecmf
+    GRIB_centreDescription:  European Centre for Medium-Range Weather Forecasts
+    GRIB_subCentre:          0
+    Conventions:             CF-1.7
+    institution:             European Centre for Medium-Range Weather Forecasts
+    history:                 2025-11-29T18:32 GRIB to CDM+CF via cfgrib-0.9.1...
+
+Variable: pm10
+Mean: 8.0405e-08 kg m**-3
+Max:  1.7025e-06 kg m**-3
+Min:  0.0000e+00 kg m**-3
