@@ -235,7 +235,11 @@ def download_year(year, workers=WORKERS):
                 per_var.setdefault(name, []).append(ds[name])
         merged = xr.Dataset({
             name: xr.concat(chunks, dim="valid_time").sortby("valid_time")
-            for name, chunks in per_var.items()}).load()
+            for name, chunks in per_var.items()})
+        # Deliberately NOT .load(). Materialising all 20 parts at once is a
+        # multi-hundred-MB spike, and this runs beside a trainer holding ~4 GB on
+        # a 17 GB machine -- that collision already killed both processes once.
+        # Leaving the arrays lazy lets to_netcdf stream them variable by variable.
         merged.to_netcdf(out_nc, encoding={v: {"zlib": True, "complevel": 4}
                                            for v in merged.data_vars})
         merged.close()
