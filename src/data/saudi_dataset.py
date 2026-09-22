@@ -395,15 +395,25 @@ class SaudiFields:
             # --- soil moisture MEMORY ------------------------------------------ #
             # Fecan corrects the threshold using instantaneous moisture, but soil
             # stays damp for days after rain and stays dust-suppressed that whole
-            # time. An exponentially weighted sum of antecedent precipitation gives
-            # the model a drying clock. lfilter applies the recursion
-            # acc_t = a*acc_{t-1} + p_t in one pass rather than 64k Python steps.
-            from scipy.signal import lfilter
-            p_mm = np.clip(self._gather(raw["tp"]), 0.0, None) * 1e3
+            # time. An exponentially weighted sum of antecedent precipitation,
+            # acc_t = a*acc_{t-1} + p_t, gives the model a drying clock.
+            #
+            # Done in place, in float32. `scipy.signal.lfilter` is the obvious way
+            # to write this recursion and it upcasts to float64, so it wanted a
+            # 129 MB temporary on top of the input and the log1p output -- ~260 MB
+            # of transients at the exact moment this loader already peaks. That
+            # was enough to abort a run on this machine. The explicit loop is
+            # 64k iterations over a 251-element row: about a second, no
+            # allocation beyond the array itself.
             hours_per_step = SECONDS_PER_STEP[cfg.cadence] / 3600.0
             a = float(np.exp(-hours_per_step / (WETNESS_TAU_DAYS * 24.0)))
-            self.wetness = np.log1p(
-                lfilter([1.0], [1.0, -a], p_mm, axis=0)).astype("float32")
+            wet = self._gather(raw["tp"]).astype("float32", copy=True)
+            np.multiply(wet, 1e3, out=wet)          # m -> mm
+            np.clip(wet, 0.0, None, out=wet)
+            for t in range(1, wet.shape[0]):
+                wet[t] += a * wet[t - 1]
+            np.log1p(wet, out=wet)
+            self.wetness = wet
         self.years = self.times.astype("datetime64[Y]").astype(int) + 1970
 
         # Last, because it gathers to nodes and so needs node_flat and n_steps.
