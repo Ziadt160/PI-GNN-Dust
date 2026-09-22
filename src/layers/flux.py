@@ -93,6 +93,11 @@ class ConservativeFluxLayer(MessagePassing):
     anyway.
     """
 
+    # Characteristic scales that turn the raw physical product into an O(1)
+    # quantity. Constants, so they cannot disturb antisymmetry.
+    U_SCALE = 10.0      # m/s, a strong wind over this domain
+    C_SCALE = 5.0       # log-space concentration, near the field's spread
+
     def __init__(self, in_channels, out_channels):
         super().__init__(aggr="add")
         # Acts on the SYMMETRIC combination x_i + x_j, so both directions of a
@@ -102,6 +107,9 @@ class ConservativeFluxLayer(MessagePassing):
             nn.ReLU(),
             nn.Linear(out_channels, out_channels),
         )
+        # Overall strength, learnable but starting small so the operator begins
+        # nearly inert and grows into its role instead of detonating at hop 1.
+        self.strength = nn.Parameter(torch.tensor(-2.0))
 
     def forward(self, x, edge_index, pos, u, v, pm10):
         return self.propagate(edge_index, x=x, pos=pos, u=u, v=v, pm10=pm10)
@@ -113,9 +121,18 @@ class ConservativeFluxLayer(MessagePassing):
 
         # Midpoint wind: symmetric in (i, j), so only `n_hat` carries the sign.
         wind = torch.cat([0.5 * (u_i + u_j), 0.5 * (v_i + v_j)], dim=-1)
-        u_n = (wind * n_hat).sum(dim=-1, keepdim=True)
+        u_n = (wind * n_hat).sum(dim=-1, keepdim=True) / self.U_SCALE
 
         # Upwind cell -- invariant under swapping the endpoints.
-        c_up = torch.where(u_n > 0, pm10_j, pm10_i)
+        c_up = torch.where(u_n > 0, pm10_j, pm10_i) / self.C_SCALE
 
-        return self.gate(x_i + x_j) * u_n * c_up
+        # The first version multiplied an UNBOUNDED gate by a raw wind and a raw
+        # concentration, summed that over 8 neighbours, and compounded it every
+        # hop. Measured against PhysicsFluxLayer on the same input it ran 388x
+        # larger at 2 hops and 1.8e16 larger at 12 -- an exponential blow-up in
+        # hop count, which is exactly why 48 h and 24 h diverged while 3 h did
+        # not. Bounding the gate and scaling the physical factors fixes the
+        # magnitude; all three are symmetric or constant, so F(j->i) = -F(i->j)
+        # still holds exactly and the scheme stays conservative.
+        gate = torch.tanh(self.gate(x_i + x_j))
+        return nn.functional.softplus(self.strength) * gate * u_n * c_up
