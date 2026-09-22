@@ -73,10 +73,33 @@ class DustTransportGNN(nn.Module):
         emission_idx: indices of the emission-related channels, re-injected at
             each hop as the local source term.
         hops: transport steps; use :func:`hops_for_horizon`.
+        aux_out: width of an optional SECOND head read from the same backbone.
+            0 disables it and ``forward`` returns a single tensor, as before.
+
+    The auxiliary head exists to break the project's binding constraint, which is
+    labels rather than capacity.  The station target supervises **11 nodes**; the
+    CAMS field supervises **all 251, at every one of 64,288 timesteps** -- about
+    thirty times more signal, covering the whole country instead of eleven dots.
+
+    CAMS cannot be the primary target: measured over 234,512 matched
+    station-hours it under-reports storm dust by 15-49x, so a model trained on it
+    learns to predict a damped field.  But it is not noise.  Its *ordering*
+    survives: across observed severity quartiles within real storms its median
+    rises 177 / 197 / 223 / 262, monotone, and rank correlation against observed
+    extinction is 0.30 in dust-coded hours.  It compresses a 4.02x real range
+    into 1.48x rather than destroying it.
+
+    So it is used the way a weak label should be: as a dense auxiliary task that
+    shapes the shared representation, at a low weight, while the sparse observed
+    target decides the answer.  Crucially the two heads are SIBLINGS, not a
+    pipeline -- the station head reads the backbone directly, never the CAMS
+    head's output, so a bad PM10 prediction cannot propagate into the severity
+    prediction.  Sarafian et al. 2023 use the same arrangement for this task and
+    weight the auxiliary loss at 0.05.
     """
 
     def __init__(self, in_channels, n_out, emission_idx, hidden=48, hops=7,
-                 dropout=0.3):
+                 dropout=0.3, aux_out=0):
         super().__init__()
         self.hops = max(1, int(hops))
         self.emission_idx = list(emission_idx)
@@ -91,6 +114,9 @@ class DustTransportGNN(nn.Module):
         self.decay = nn.Parameter(torch.tensor(0.0))     # learned settling/dilution
         self.drop = nn.Dropout(dropout)
         self.head = nn.Linear(hidden, n_out)
+        # Sibling head, not a second stage. Reads the same `h`.
+        self.aux_out = int(aux_out)
+        self.aux_head = nn.Linear(hidden, self.aux_out) if self.aux_out else None
 
         self.register_buffer("mean", torch.zeros(in_channels))
         self.register_buffer("std", torch.ones(in_channels))
@@ -105,6 +131,11 @@ class DustTransportGNN(nn.Module):
         Args:
             x: ``[N, in_channels]`` features for **all** nodes, boundary included.
             readout: node indices to return; ``None`` returns every node.
+
+        Returns the event logits, or ``(event_logits, aux_pred)`` when an
+        auxiliary head is configured.  The auxiliary prediction always covers
+        **every** node, because the CAMS field is dense and its whole value is
+        that it supervises the cells the stations cannot reach.
         """
         pm10, u, v = x[:, 0:1], x[:, 1:2], x[:, 2:3]
         xn = (x - self.mean) / self.std
@@ -118,4 +149,7 @@ class DustTransportGNN(nn.Module):
             h = keep * h + torch.relu(inflow) + src
 
         h = self.drop(h)
-        return self.head(h if readout is None else h[readout])
+        main = self.head(h if readout is None else h[readout])
+        if self.aux_head is None:
+            return main
+        return main, self.aux_head(h)

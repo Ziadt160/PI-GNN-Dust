@@ -174,6 +174,17 @@ def main():
                          "hops scaled to the forecast horizon, readout at interior "
                          "cells only. The default 2-hop model has a 152 km reach, "
                          "while 24 h transport is 500-700 km")
+    ap.add_argument("--aux-cams", type=float, default=0.0, metavar="LAMBDA",
+                    help="train a second head on the dense CAMS PM10/PM2.5 field "
+                         "alongside the station head, at this loss weight. The "
+                         "station target supervises 11 nodes; CAMS supervises all "
+                         "251 at every timestep, ~30x more signal. CAMS is too "
+                         "damped to be the target but its ORDERING survives "
+                         "(rank corr 0.30 in dust hours, monotone across severity "
+                         "quartiles), which is what a weak auxiliary label needs. "
+                         "Sibling heads, not a pipeline: the station head reads "
+                         "the backbone, never the CAMS head's output. Try 0.05, "
+                         "the weight Sarafian et al. 2023 used. Needs --transport")
     ap.add_argument("--resume", dest="resume", action="store_true", default=True,
                     help="continue from results/checkpoints/<out>_<horizon>.pt when "
                          "one exists: completed horizons are skipped, a partial one "
@@ -410,11 +421,19 @@ def main():
                          if c in ("ustar_+1", "log_emission_+1", "emis_tendency_+1",
                                   "speed_+1", "rel_elev")]
             model = DustTransportGNN(n_ch, n_out, emis_cols, args.hidden,
-                                     k_hops, args.dropout).to(device)
+                                     k_hops, args.dropout,
+                                     aux_out=2 if args.aux_cams > 0 else 0).to(device)
+            if args.aux_cams > 0:
+                print(f"  auxiliary CAMS head: lambda {args.aux_cams}, "
+                      f"{fields.n_nodes} dense nodes per step vs "
+                      f"{len(train_st)} supervised stations", flush=True)
             print(f"  DustTransportGNN: {k_hops} hops = {k_hops*76} km reach "
                   f"(dust travels ~{5.8*lead_h*3.6:.0f} km at p90 wind over {lead_h} h)",
                   flush=True)
         else:
+            if args.aux_cams > 0:
+                raise SystemExit("--aux-cams needs --transport: the auxiliary head "
+                                 "hangs off DustTransportGNN's shared backbone")
             model = StationDustModel(n_ch, n_out, args.hidden,
                                      args.hops, args.dropout).to(device)
         model.set_stats(sub.mean(0), sub.std(0))
@@ -454,6 +473,26 @@ def main():
                 return cumulative_probabilities(out, EVENT_THRESHOLDS, names)
             return torch.sigmoid(out)
 
+        def split_heads(raw, B, N):
+            """(event logits [B,N,*], CAMS prediction [B,N,2] or None)."""
+            if args.aux_cams > 0:
+                main, aux = raw
+                return main.view(B, N, -1), aux.view(B, N, -1)
+            return raw.view(B, N, -1), None
+
+        def cams_loss(aux, sel, _step):
+            """Dense MSE on the log CAMS field at the SAME valid time as the target.
+
+            No mask: unlike the stations, every one of the 251 land cells has a
+            value at every timestep -- that abundance is the entire point.
+            Built per batch rather than cached, since the full [T, N, 2] array
+            would be 129 MB and memory on this machine is already contended.
+            """
+            tgt = np.stack([fields.pm10[sel + _step], fields.pm25[sel + _step]],
+                           axis=-1)
+            return nn.functional.mse_loss(
+                aux, torch.from_numpy(tgt).to(device))
+
         opt = torch.optim.Adam(model.parameters(), lr=args.lr)
 
         def run(idxs, stations, train, _step=step):
@@ -470,10 +509,13 @@ def main():
                 B, N, C = x.shape
                 offs = (torch.arange(B, device=device) * N).view(1, -1, 1)
                 ei = (edge_index.unsqueeze(1) + offs).reshape(2, -1)
-                out = model(x.reshape(B * N, C), ei, pos.repeat(B, 1)).view(B, N, -1)
-                out = out[:, node_idx[stations], :]
+                main, aux = split_heads(
+                    model(x.reshape(B * N, C), ei, pos.repeat(B, 1)), B, N)
+                out = main[:, node_idx[stations], :]
                 loss, n_valid = loss_of(out, sel, stations, _step)
                 nlab += n_valid
+                if aux is not None:
+                    loss = loss + args.aux_cams * cams_loss(aux, sel, _step)
                 if train:
                     opt.zero_grad(); loss.backward()
                     torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0); opt.step()
@@ -572,8 +614,9 @@ def main():
                     B, N, C = x.shape
                     offs = (torch.arange(B, device=device) * N).view(1, -1, 1)
                     ei = (edge_index.unsqueeze(1) + offs).reshape(2, -1)
-                    out = model(x.reshape(B * N, C), ei, pos.repeat(B, 1)).view(B, N, -1)
-                    P.append(event_probs(out[:, node_idx[eval_st], :]).cpu().numpy())
+                    main, _ = split_heads(
+                        model(x.reshape(B * N, C), ei, pos.repeat(B, 1)), B, N)
+                    P.append(event_probs(main[:, node_idx[eval_st], :]).cpu().numpy())
                     Y.append(labels[sel + step][:, eval_st])
                     Mk.append(valid[sel + step][:, eval_st])
             P = np.concatenate(P); Y = np.concatenate(Y).astype(bool)
