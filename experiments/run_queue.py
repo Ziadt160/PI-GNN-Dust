@@ -52,8 +52,12 @@ IDLE_MATCH = ("train_station_dust.py", "ablation_levels.py")
 # first because it is the only one exercising untested physics code, and a
 # failure there should not cost six hours of queue behind it.
 JOBS = [
+    # gated_s0 belongs here, not passed ad-hoc: --only filters THIS list, so a
+    # name absent from it is silently skipped rather than run.
     ("smoke_physics", ["--epochs", "2", "--seed", "0", "--fresh",
                        "--physics-features", "--deposition", "--conservative"]),
+    ("gated_s0",      ["--epochs", "60", "--seed", "0", "--fresh",
+                       "--dust-gate"]),
     ("auxcams_s0",    ["--epochs", "60", "--seed", "0", "--fresh",
                        "--aux-cams", "0.05"]),
     # No --fresh: this arm has 3h and 24h complete and a 48h checkpoint at
