@@ -174,6 +174,29 @@ def main():
                          "hops scaled to the forecast horizon, readout at interior "
                          "cells only. The default 2-hop model has a 152 km reach, "
                          "while 24 h transport is 500-700 km")
+    ap.add_argument("--physics-features", action="store_true",
+                    help="add hour-of-day, mixing depth, saltation-threshold "
+                         "excess and soil-moisture memory. Each encodes "
+                         "something the model could not represent AT ALL: it "
+                         "had no time-of-day channel, so at a 3-hourly cadence "
+                         "it could not tell 03:00 from 15:00 and could not "
+                         "learn the diurnal emission burst")
+    ap.add_argument("--deposition", action="store_true",
+                    help="make the per-hop survival fraction physical: "
+                         "keep = exp(-(v_dry + lambda*P)*dt/H) per node, driven "
+                         "by precipitation and mixing depth, instead of one "
+                         "global learned scalar shared by the whole country in "
+                         "every weather condition. Scavenging is multiplicative "
+                         "and the old additive form could not express it. "
+                         "Requires --physics-features for the blh channel")
+    ap.add_argument("--conservative", action="store_true",
+                    help="use the mass-conserving transport operator. The flux "
+                         "across a face is antisymmetric by construction, so what "
+                         "leaves one cell is exactly what arrives in its "
+                         "neighbour and the transport term sums to zero over the "
+                         "graph -- a finite-volume scheme rather than a penalty. "
+                         "The existing layer computes each direction of a face "
+                         "independently and can create or destroy dust")
     ap.add_argument("--aux-cams", type=float, default=0.0, metavar="LAMBDA",
                     help="train a second head on the dense CAMS PM10/PM2.5 field "
                          "alongside the station head, at this loss weight. The "
@@ -260,7 +283,8 @@ def main():
                      relief=True, emission_features=True, transport_feature=True,
                      divergence=True, multitask=True, topology="full", neighbors=8,
                      min_driver_coverage=args.min_driver_coverage,
-                     pressure_levels=args.levels)
+                     pressure_levels=args.levels,
+                     physics_features=args.physics_features)
     fields = SaudiFields(cfg, verbose=True)
     asm = FeatureAssembler(fields, cfg)
     edge_index, pos, _ = build_masked_graph(fields.mask, neighbors=cfg.neighbors)
@@ -420,9 +444,28 @@ def main():
             emis_cols = [i for i, c in enumerate(asm.channels)
                          if c in ("ustar_+1", "log_emission_+1", "emis_tendency_+1",
                                   "speed_+1", "rel_elev")]
+            dep_cols = []
+            if args.deposition:
+                need = ("log_tp_+1", "blh_+1")
+                missing = [c for c in need if c not in asm.channels]
+                if missing:
+                    raise SystemExit(
+                        f"--deposition needs channels {missing}; add "
+                        f"--physics-features (and keep future_met on)")
+                dep_cols = [asm.channels.index(c) for c in need]
             model = DustTransportGNN(n_ch, n_out, emis_cols, args.hidden,
                                      k_hops, args.dropout,
-                                     aux_out=2 if args.aux_cams > 0 else 0).to(device)
+                                     aux_out=2 if args.aux_cams > 0 else 0,
+                                     deposition_idx=dep_cols,
+                                     dt_hop=step * 10800.0 / max(k_hops, 1),
+                                     conservative=args.conservative).to(device)
+            if args.conservative:
+                print('  conservative transport: flux antisymmetric per face, '
+                      'mass conserved by construction', flush=True)
+            if dep_cols:
+                print(f"  physical deposition: keep = exp(-(v_dry + L*P)*dt/H), "
+                      f"dt_hop {step * 10800.0 / max(k_hops, 1) / 3600:.1f} h",
+                      flush=True)
             if args.aux_cams > 0:
                 print(f"  auxiliary CAMS head: lambda {args.aux_cams}, "
                       f"{fields.n_nodes} dense nodes per step vs "

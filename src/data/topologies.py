@@ -47,6 +47,13 @@ class FeatureAssembler:
             names += ["rel_elev"]
         if cfg.transport_feature:
             names += ["transport"]
+        if cfg.physics_features:
+            # Four things the model previously could not represent at all, rather
+            # than represented poorly. See src/data/saudi_dataset.py for each.
+            names += ["hour_sin", "hour_cos",      # diurnal cycle: was absent
+                      "blh_+1",                    # mixing depth at the valid time
+                      "ustar_excess_+1",           # how far above the saltation switch
+                      "wetness"]                   # days-long soil drying memory
         # Stability block: present only when the levels archive is complete, so a
         # partial download changes nothing rather than silently changing the
         # feature set. `has_levels` is the single source of truth for both the
@@ -91,6 +98,14 @@ class FeatureAssembler:
             cols += [f.elev]
         if cfg.transport_feature:
             cols += [f.transport[idx]]
+        if cfg.physics_features:
+            # Mixing depth and threshold excess are taken at `nxt`, the valid
+            # time, for the same reason the wind is: they describe the atmosphere
+            # when the forecast lands, not when it was issued. Wetness is taken at
+            # `idx` because it is a memory of rain that has ALREADY fallen.
+            cols += [np.full(f.n_nodes, f.hsin[nxt], "float32"),
+                     np.full(f.n_nodes, f.hcos[nxt], "float32"),
+                     f.blh[nxt], f.ustar_excess[nxt], f.wetness[idx]]
         if self.has_levels:
             # At `nxt`, not at `idx`: stability decides whether dust reaching the
             # station is mixed to eye level, and that is a property of the

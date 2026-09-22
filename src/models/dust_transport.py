@@ -44,7 +44,7 @@ import math
 import torch
 import torch.nn as nn
 
-from src.layers.flux import PhysicsFluxLayer
+from src.layers.flux import ConservativeFluxLayer, PhysicsFluxLayer
 
 # 0.75 deg cell at this latitude; used to turn a lead time into a hop count.
 CELL_KM = 76.0
@@ -99,7 +99,8 @@ class DustTransportGNN(nn.Module):
     """
 
     def __init__(self, in_channels, n_out, emission_idx, hidden=48, hops=7,
-                 dropout=0.3, aux_out=0):
+                 dropout=0.3, aux_out=0, deposition_idx=None, dt_hop=10800.0,
+                 conservative=False):
         super().__init__()
         self.hops = max(1, int(hops))
         self.emission_idx = list(emission_idx)
@@ -108,10 +109,32 @@ class DustTransportGNN(nn.Module):
         # One shared transport operator applied repeatedly: the physics of a hop
         # does not change with the hop index, and sharing keeps the parameter
         # count flat as the horizon (and so the hop count) grows.
-        self.transport = PhysicsFluxLayer(hidden, hidden)
+        self.transport = (ConservativeFluxLayer(hidden, hidden) if conservative
+                          else PhysicsFluxLayer(hidden, hidden))
         # Local emission source, re-injected every hop.
         self.source = nn.Sequential(nn.Linear(len(self.emission_idx), hidden), nn.ReLU())
-        self.decay = nn.Parameter(torch.tensor(0.0))     # learned settling/dilution
+        # --- removal ---------------------------------------------------------- #
+        # `decay` alone was ONE global scalar: the same survival fraction for all
+        # 251 cells, every hop, in every weather condition. Rain entered only as
+        # an additive input feature, but scavenging is MULTIPLICATIVE -- rain
+        # removes a fraction of the dust -- so the additive form could not express
+        # it without learning a contorted interaction.
+        #
+        # With `deposition_idx` the survival fraction becomes physical per node:
+        #
+        #     keep = exp( -(v_dry + lambda * P) * dt / H )
+        #
+        # P precipitation rate, H mixing depth, dt the seconds one hop represents.
+        # Both rates are per-hidden-channel rather than scalar, so the network can
+        # hold slow- and fast-settling components at once -- the latent stand-in
+        # for coarse dust dropping out in minutes while fine dust hangs for days,
+        # which a single shared decay forced to be identical.
+        self.decay = nn.Parameter(torch.tensor(0.0))     # fallback: global scalar
+        self.deposition_idx = list(deposition_idx or [])
+        self.dt_hop = float(dt_hop)
+        if self.deposition_idx:
+            self.v_dry = nn.Parameter(torch.full((hidden,), -4.0))
+            self.scavenge = nn.Parameter(torch.full((hidden,), -4.0))
         self.drop = nn.Dropout(dropout)
         self.head = nn.Linear(hidden, n_out)
         # Sibling head, not a second stage. Reads the same `h`.
@@ -120,6 +143,20 @@ class DustTransportGNN(nn.Module):
 
         self.register_buffer("mean", torch.zeros(in_channels))
         self.register_buffer("std", torch.ones(in_channels))
+
+    def _survival(self, x):
+        """Fraction of dust surviving one hop: scalar, or physical per node."""
+        if not self.deposition_idx:
+            return torch.sigmoid(self.decay)
+        # Unnormalised, like the wind and concentration the flux layer reads:
+        # these are physical quantities, not standardised features.
+        tp_log = x[:, self.deposition_idx[0]:self.deposition_idx[0] + 1]
+        blh = x[:, self.deposition_idx[1]:self.deposition_idx[1] + 1]
+        precip = torch.expm1(tp_log.clamp(min=0.0, max=20.0))     # -> mm
+        depth = blh.clamp(min=50.0, max=6000.0)                   # -> m
+        rate = (nn.functional.softplus(self.v_dry)
+                + nn.functional.softplus(self.scavenge) * precip)
+        return torch.exp(-rate * self.dt_hop / depth).clamp(1e-4, 1.0)
 
     def set_stats(self, m, s):
         with torch.no_grad():
@@ -142,7 +179,7 @@ class DustTransportGNN(nn.Module):
 
         h = self.encode(xn)
         src = self.source(xn[:, self.emission_idx])
-        keep = torch.sigmoid(self.decay)      # in (0,1): what survives one hop
+        keep = self._survival(x)              # in (0,1): what survives one hop
 
         for _ in range(self.hops):
             inflow = self.transport(h, edge_index, pos, u, v, pm10)

@@ -47,6 +47,10 @@ PM25_EMISSION_FRACTION = 0.12
 
 CHUNK_STEPS = 2000          # time-chunk for the gridded derivative pass
 
+# e-folding time of the soil-moisture memory, days. Desert soil dries in a
+# few days; this is the horizon over which past rain still suppresses dust.
+WETNESS_TAU_DAYS = 5.0
+
 
 @dataclass
 class DataConfig:
@@ -73,6 +77,10 @@ class DataConfig:
     # are used at all. A partial download is ignored rather than edge-padded,
     # which would silently present one year's values as two decades of drivers.
     min_driver_coverage: float = 0.98
+    # Extra physical channels: hour of day, mixing depth, threshold excess,
+    # soil-moisture memory. Off by default so every run predating them stays
+    # reproducible and a comparison in flight cannot silently change features.
+    physics_features: bool = False
     multitask: bool = True           # predict PM10 + PM2.5 (vs PM10 only)
     topology: str = "full"           # "full" | "patch"
     patch: int = 7
@@ -348,6 +356,47 @@ class SaudiFields:
                ).astype(int) + 1
         self.dsin = np.sin(2 * np.pi * doy / 365.25).astype("float32")
         self.dcos = np.cos(2 * np.pi * doy / 365.25).astype("float32")
+
+        # --- hour of day -------------------------------------------------- #
+        # The model had NO time-of-day channel at all, only day-of-year, so at a
+        # 3-hourly cadence it saw eight samples a day and could not tell 03:00
+        # from 15:00. Dust has a sharp diurnal cycle: a nocturnal low-level jet
+        # decouples from the surface overnight, convective mixing drags it down
+        # after sunrise as a morning emission burst, mixing peaks in the
+        # afternoon, and a stable nocturnal layer concentrates whatever is left
+        # at eye level. None of that was representable.
+        hour = (self.times.astype("datetime64[h]").astype(int) % 24).astype("float32")
+        self.hsin = np.sin(2 * np.pi * hour / 24.0).astype("float32")
+        self.hcos = np.cos(2 * np.pi * hour / 24.0).astype("float32")
+
+        # --- mixing depth, exposed for transport --------------------------- #
+        # `em["H"]` is the ERA5 boundary-layer height (clipped), already computed
+        # for the emission scheme but never visible outside it. Deposition needs
+        # it: the same removal rate thins a deep mixed layer far more slowly than
+        # a shallow one.
+        self.blh = self._gather(
+            np.broadcast_to(em["H"], pm10_phys.shape)).astype("float32")
+
+        # --- how far above the saltation threshold ------------------------- #
+        # Emission is ~ u*(u*^2 - u*t^2) above threshold and EXACTLY zero below.
+        # The product was supplied but the switch itself was not, leaving the
+        # network to infer a hard nonlinearity from a smooth input.
+        self.ustar_excess = np.clip(
+            self._gather(np.broadcast_to(em["ustar_eff"] - em["ustar_t"],
+                                         pm10_phys.shape)), 0.0, None).astype("float32")
+
+        # --- soil moisture MEMORY ------------------------------------------ #
+        # Fecan corrects the threshold using instantaneous moisture, but soil
+        # stays damp for days after rain and stays dust-suppressed that whole
+        # time. An exponentially weighted sum of antecedent precipitation gives
+        # the model a drying clock. lfilter applies the recursion
+        # acc_t = a*acc_{t-1} + p_t in one pass rather than 64k Python steps.
+        from scipy.signal import lfilter
+        p_mm = np.clip(self._gather(raw["tp"]), 0.0, None) * 1e3
+        hours_per_step = SECONDS_PER_STEP[cfg.cadence] / 3600.0
+        a = float(np.exp(-hours_per_step / (WETNESS_TAU_DAYS * 24.0)))
+        self.wetness = np.log1p(
+            lfilter([1.0], [1.0, -a], p_mm, axis=0)).astype("float32")
         self.years = self.times.astype("datetime64[Y]").astype(int) + 1970
 
         # Last, because it gathers to nodes and so needs node_flat and n_steps.
