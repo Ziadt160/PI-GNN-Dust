@@ -51,7 +51,26 @@ IDLE_MATCH = ("train_station_dust.py", "ablation_levels.py")
 # name -> extra flags. Order is deliberate: the cheap 2-epoch smoke test runs
 # first because it is the only one exercising untested physics code, and a
 # failure there should not cost six hours of queue behind it.
-JOBS = [
+# Isolation of the physics encodings. physics_s0 turned all three on together
+# and the model collapsed to a near-constant predictor -- flat 0.70/0.71/0.75
+# validation at every horizon from epoch 2, against a baseline that learns
+# horizon-specific 0.36/0.53/0.60, plus an epoch-1 loss of 40.86 at 24 h. Three
+# changes went in at once, so the run cannot say WHICH broke.
+#
+# 3 epochs is enough: the signature is an epoch-1 explosion followed by a flat
+# line, both visible immediately. --deposition cannot be tested alone because it
+# reads the blh channel that --physics-features provides.
+ISOLATION = [
+    ("iso_control",      ["--epochs", "3", "--seed", "0", "--fresh"]),
+    ("iso_features",     ["--epochs", "3", "--seed", "0", "--fresh",
+                          "--physics-features"]),
+    ("iso_deposition",   ["--epochs", "3", "--seed", "0", "--fresh",
+                          "--physics-features", "--deposition"]),
+    ("iso_conservative", ["--epochs", "3", "--seed", "0", "--fresh",
+                          "--conservative"]),
+]
+
+JOBS = ISOLATION + [
     # gated_s0 belongs here, not passed ad-hoc: --only filters THIS list, so a
     # name absent from it is silently skipped rather than run.
     ("smoke_physics", ["--epochs", "2", "--seed", "0", "--fresh",
