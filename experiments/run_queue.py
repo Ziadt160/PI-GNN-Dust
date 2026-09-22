@@ -70,7 +70,21 @@ ISOLATION = [
                           "--conservative"]),
 ]
 
-JOBS = ISOLATION + [
+# Re-measured after the normalisation fix (cbcc2e2). Every physics result so far
+# was taken through a broken input pipeline -- hour-of-day normalised to ~1e6 --
+# so none of them said anything about the physics itself. ctrl_fix is a matched
+# control at the same seed and budget, since the fix also slightly changes the
+# stats subsample for runs with no new channels.
+#
+# 5 epochs: the control separates its horizons by epoch 3 (0.37 / 0.53 / 0.59),
+# so a healthy arm shows itself well before then; a collapsed one flatlines.
+POSTFIX = [
+    ("ctrl_fix", ["--epochs", "5", "--seed", "0", "--fresh"]),
+    ("phys_fix", ["--epochs", "5", "--seed", "0", "--fresh",
+                  "--physics-features", "--deposition", "--conservative"]),
+]
+
+JOBS = ISOLATION + POSTFIX + [
     # gated_s0 belongs here, not passed ad-hoc: --only filters THIS list, so a
     # name absent from it is silently skipped rather than run.
     ("smoke_physics", ["--epochs", "2", "--seed", "0", "--fresh",
