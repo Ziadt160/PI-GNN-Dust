@@ -146,6 +146,14 @@ def main():
                          "hops scaled to the forecast horizon, readout at interior "
                          "cells only. The default 2-hop model has a 152 km reach, "
                          "while 24 h transport is 500-700 km")
+    ap.add_argument("--dust-gate", action="store_true",
+                    help="discard station-hours whose low visibility is coded as "
+                         "water (fog, mist, rain, thunderstorm) with no dust code. "
+                         "Measured: 36%% of `severe` events and 17%% of `dust_storm` "
+                         "events are water, not dust, so the ungated label asks the "
+                         "model to predict a mixture of two unrelated phenomena. "
+                         "Screens rather than relabels -- a fog hour is not evidence "
+                         "that no dust was present")
     ap.add_argument("--ordinal", action="store_true",
                     help="predict one ORDINAL severity grade (clear/dusty/storm/"
                          "severe) with a SORD loss instead of three independent "
@@ -210,7 +218,8 @@ def main():
     edge_index, pos = edge_index.to(device), pos.to(device)
 
     tgt = DustTarget(args.metar_dir) if args.metar_dir else DustTarget()
-    labels, valid, extra = tgt.align(pd.to_datetime(fields.times, utc=True))
+    labels, valid, extra = tgt.align(pd.to_datetime(fields.times, utc=True),
+                                     dust_gate=args.dust_gate)
     node_idx, kept = tgt.node_indices(fields.mask)
     names = extra["threshold_names"]
     cols = [extra["station_ids"].index(s) for s in kept]
@@ -269,6 +278,10 @@ def main():
     n_grades = len(EVENT_THRESHOLDS) + 1
 
     print(f"\nstations in graph: {len(kept)} -> {len(set(node_idx))} distinct cells")
+    if args.dust_gate:
+        wet = extra["wet_code"][:, cols]
+        print(f"dust gate ON: discarded {int(wet.sum()):,} water-obscured "
+              f"station-hours ({wet.mean()*100:.2f}% of the record)")
     print("observed base rates:")
     print(DustTarget.summarise(labels, valid, names), flush=True)
 

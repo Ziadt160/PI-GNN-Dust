@@ -58,6 +58,24 @@ EVENT_THRESHOLDS = {"dust_storm": 1.0, "severe": 0.4, "dusty": 5.0}
 
 DUST_CODE_RE = "DS|SS|BLDU|BLSA|DU|SA|PO"
 
+# Water-based obscurations: fog, mist, drizzle, rain, thunderstorms, hail, snow.
+# Visibility below a threshold for one of THESE reasons is not a dust event, and
+# measured over all 3.55M observations the contamination is severe at the tail:
+#
+#     label                hours    dust-coded   water-coded   haze   uncoded
+#     dusty  (vis<5 km)   112,550     64.9%         10.7%      5.8%    18.9%
+#     storm  (vis<1 km)    14,677     71.0%         17.4%      1.9%    10.4%
+#     severe (vis<0.4 km)   2,768     51.7%       * 36.0% *    0.6%    12.6%
+#
+# More than a third of "severe dust storms" were fog and rain -- and `severe` is
+# the grade that scores TS 0.000. Part of that is rarity; part of it is being
+# asked to predict a mixture of two unrelated phenomena.
+#
+# The reverse error is as large: only 68.1% of dust-coded hours drop visibility
+# below 5 km, so roughly a third of observer-confirmed dust is currently labelled
+# "clear" and trains the model against itself.
+WET_CODE_RE = "FG|BR|RA|DZ|TS|SH|GR|GS|SN|PL|IC"
+
 
 def beta_ext_from_visibility(vis_km):
     """Extinction coefficient (1/km) from visibility (km) -- linear in dust mass.
@@ -94,12 +112,18 @@ class DustTarget:
         d = pd.read_csv(path, na_values=["M", "T"])
         t = pd.to_datetime(d["valid"], utc=True, errors="coerce")
         vis = pd.to_numeric(d["vsby"], errors="coerce") * MILES_TO_KM
-        code = d["wxcodes"].fillna("").astype(str).str.contains(DUST_CODE_RE, regex=True)
+        wx = d["wxcodes"].fillna("").astype(str)
+        code = wx.str.contains(DUST_CODE_RE, regex=True)
+        # Water obscuration only counts against the observation when dust is NOT
+        # also reported: a haboob ahead of a thunderstorm outflow carries both
+        # codes and is a real dust event, so `TS` alone must not discard it.
+        wet = wx.str.contains(WET_CODE_RE, regex=True) & ~code
 
         frame = pd.DataFrame({
             "vis_km": vis.values,
             "beta": beta_ext_from_visibility(vis.values),
             "dust_code": code.values,
+            "wet_code": wet.values,
             "censored": (vis.values >= VIS_CEILING_KM),
         }, index=t)
         frame = frame[~frame.index.isna()].sort_index()
@@ -108,7 +132,7 @@ class DustTarget:
         return frame
 
     # ------------------------------------------------------------------ #
-    def align(self, times, tolerance="90min"):
+    def align(self, times, tolerance="90min", dust_gate=False):
         """Observations on the model's time axis.
 
         Returns ``(labels, valid, extra)``:
@@ -118,7 +142,7 @@ class DustTarget:
         """
         times = pd.DatetimeIndex(times)
         names = list(EVENT_THRESHOLDS)
-        sids, labs, vals, lbeta, cens, codes = [], [], [], [], [], []
+        sids, labs, vals, lbeta, cens, codes, wets = [], [], [], [], [], [], []
 
         for s in self.stations:
             frame = self.raw(s["id"])
@@ -127,8 +151,17 @@ class DustTarget:
             a = frame.reindex(times, method="nearest",
                               tolerance=pd.Timedelta(tolerance))
             ok = a["vis_km"].notna().to_numpy()
+            wet = a["wet_code"].astype("boolean").fillna(False).to_numpy(dtype=bool)
+            if dust_gate:
+                # Screen rather than relabel. A fog hour is not evidence that no
+                # dust was present, so calling it a negative would be as wrong as
+                # calling it an event; it carries no information either way.
+                # Xu et al. 2026 do the same, discarding samples with RH >= 70%
+                # or precipitation above 0.1 mm/h before training.
+                ok = ok & ~wet
             sids.append(s["id"])
             vals.append(ok)
+            wets.append(wet)
             labs.append(np.stack([(a["vis_km"] < EVENT_THRESHOLDS[n]).to_numpy()
                                   for n in names], axis=-1))
             with np.errstate(divide="ignore", invalid="ignore"):
@@ -143,6 +176,8 @@ class DustTarget:
                 {"log_beta": np.stack(lbeta, axis=1).astype("float32"),
                  "censored": np.stack(cens, axis=1),
                  "dust_code": np.stack(codes, axis=1),
+                 "wet_code": np.stack(wets, axis=1),
+                 "dust_gate": bool(dust_gate),
                  "station_ids": sids,
                  "threshold_names": names})
 
