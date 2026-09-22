@@ -1,202 +1,172 @@
-import torch
-import torch.nn as nn
-from torch_geometric.loader import DataLoader
-import numpy as np
+"""Held-out evaluation suite for the PI-GNN dust model.
+
+Evaluates the trained checkpoint on the TEST split (default: 2007), which is
+never used for model selection. Reports skill metrics against the persistence
+baseline plus stability, wind-sensitivity, mass-conservation and latency checks.
+
+Run from the repository root:  python experiments/benchmark.py
+"""
 import os
+import sys
+import json
 import time
-import pandas as pd
-from tqdm import tqdm
 
-from pi_dgn import PIDustModel, build_dust_graph
-from train_pi_dgn import GraphDustDataset, DATA_DIR, DEVICE
+import numpy as np
+import torch
+import yaml
+from torch_geometric.loader import DataLoader
 
-def load_val_data():
-    sfc_file = os.path.join(DATA_DIR, 'data_sfc.nc')
-    # Use validation year for benchmarking
-    val_files = [os.path.join(DATA_DIR, 'era5_2007.nc')]
-    print("Loading Validation Data...")
-    return GraphDustDataset(sfc_file, val_files)
+REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+sys.path.insert(0, REPO_ROOT)
 
-def benchmark():
-    print("\n=== PI-DGN Production Benchmark Suite ===")
-    
-    # 1. Setup
-    dataset = load_val_data()
-    loader = DataLoader(dataset, batch_size=1, shuffle=False) # Batch 1 for rollout clarity
-    
-    model = PIDustModel().to(DEVICE)
-    try:
-        model.load_state_dict(torch.load('best_pi_dgn.pth', map_location=DEVICE, weights_only=True))
-        print("Loaded 'best_pi_dgn.pth' successfully.")
-    except FileNotFoundError:
-        print("Error: 'best_pi_dgn.pth' not found. Train the model first.")
+from src.models.pi_gnn import PIDustModel
+from src.training.dataset import GraphDustDataset
+from src.physics.loss import mass_conservation_error
+
+
+def resolve(path):
+    return path if os.path.isabs(path) else os.path.join(REPO_ROOT, path)
+
+
+def metrics(pred, true):
+    mse = float(np.mean((pred - true) ** 2))
+    ss_res = float(np.sum((true - pred) ** 2))
+    ss_tot = float(np.sum((true - np.mean(true)) ** 2))
+    return {
+        "MSE": mse,
+        "RMSE": float(np.sqrt(mse)),
+        "MAE": float(np.mean(np.abs(pred - true))),
+        "R2": 1.0 - ss_res / ss_tot,
+    }
+
+
+def load_config():
+    with open(resolve("configs/default_config.yaml")) as f:
+        return yaml.safe_load(f)
+
+
+def main():
+    print("=== PI-GNN Held-out Benchmark (TEST split) ===")
+    cfg = load_config()
+    device = torch.device("cpu")
+    data_dir = resolve(cfg["data"]["dir"])
+    lat_dim, lon_dim = cfg["physics"]["lat_dim"], cfg["physics"]["lon_dim"]
+    test_years = cfg["test"]["years"]
+    feat = cfg.get("features", {})
+
+    era = [os.path.join(data_dir, f"era5_{y}.nc") for y in test_years]
+    ds = GraphDustDataset(
+        os.path.join(data_dir, cfg["data"]["sfc_file"]), era, lat_dim, lon_dim,
+        window=feat.get("window", 1), add_speed=feat.get("add_speed", False),
+        add_doy=feat.get("add_doy", False), neighbors=feat.get("neighbors", 4),
+        resample=feat.get("resample", "12h"),
+    )
+    print(f"Test years {test_years}: {len(ds)} samples | in_channels: {ds.in_channels}")
+
+    model = PIDustModel(
+        in_channels=ds.in_channels,
+        hidden_channels=cfg["model"]["hidden_channels"],
+        hops=cfg["model"]["hops"],
+    ).to(device)
+    model_path = resolve(cfg["paths"]["model_out"])
+    if not os.path.exists(model_path):
+        print(f"Error: checkpoint not found at {model_path}. Run train_model.py first.")
         return
-
+    model.load_state_dict(torch.load(model_path, map_location=device, weights_only=True))
     model.eval()
-    mse_crit = nn.MSELoss()
-    
-    # --- Test 1: Baseline Comparison (Model vs Persistence) ---
-    print("\n[Test 1] Baseline Comparison (1-Step Ahead)")
-    total_mse_model = 0
-    total_mse_persist = 0
-    count = 0
-    
-    with torch.no_grad():
-        for data in tqdm(loader, desc="Benchmarking"):
-            data = data.to(DEVICE)
-            
-            # Model Pred
-            pred, _ = model(data)
-            mse_model = mse_crit(pred, data.y).item()
-            
-            # Persistence Pred (Next = Current)
-            # data.x[:, 0] is PM10 current (Ground Truth at t)
-            # data.y is PM10 next (Ground Truth at t+1)
-            # Fix 2: Calculate Persistence MSE (comparing t vs t+1)
-            gt_t = data.x[:, 0:1]
-            gt_next = data.y
-            mse_persist = mse_crit(gt_t, gt_next).item()
-            
-            total_mse_model += mse_model
-            total_mse_persist += mse_persist
-            count += 1
-            
-    avg_mse_model = total_mse_model / count
-    avg_mse_persist = total_mse_persist / count
-    
-    print(f"  Persistence MSE: {avg_mse_persist:.5f}")
-    print(f"  PI-DGN MSE:      {avg_mse_model:.5f}")
-    print(f"  Improvement:     {((avg_mse_persist - avg_mse_model)/avg_mse_persist)*100:.2f}%")
-    
-    # --- Test 2: Autoregressive Rollout (Stability) ---
-    print("\n[Test 2] Autoregressive Rollout (24h / 2 steps @ 12H resolution)")
-    # Since our data is 12H, 24h is just 2 steps. Let's try 6 steps (3 days) for stress test.
-    steps = 6 
-    
-    # Get a starting sample
-    start_idx = 0
-    data = dataset.get(start_idx)
-    
-    current_x = data.x.clone().to(DEVICE) # [Nodes, 4]
-    
-    # We need the FUTURE ERA5 data (forcing) to rollout truly, 
-    # but for simple stability check, we can just use the ERA5 from the dataset at t+k
-    # Or assuming "forecast" ERA5 is available.
-    # Here we simulate the rollout loop.
-    
-    print(f"  Starting Rollout for {steps} steps (72 hours)...")
-    rollout_preds = []
-    
-    with torch.no_grad():
-        curr_graph = data
-        curr_graph.x = curr_graph.x.to(DEVICE)
-        curr_graph.edge_index = curr_graph.edge_index.to(DEVICE)
-        curr_graph.pos = curr_graph.pos.to(DEVICE)
-        
-        for s in range(steps):
-            # Predict
-            pm10_next, _ = model(curr_graph)
-            rollout_preds.append(pm10_next.mean().item())
-            
-            # Update state for next step
-            # We need valid ERA5 for next step. Let's cheat and grab it from dataset
-            next_real_data = dataset.get(start_idx + s + 1)
-            
-            # Construct next input: Predicted PM10 + Future Wind/Temp
-            next_x = torch.cat([
-                pm10_next, # Prediction
-                torch.tensor(next_real_data.x[:, 1:], device=DEVICE) # Future Forcing
-            ], dim=1)
-            
-            curr_graph.x = next_x
-            
-    print(f"  Mean PM10 Trajectory: {['{:.3f}'.format(x) for x in rollout_preds]}")
-    # Check for explosion (NaN or > 100 in log space would be huge)
-    if any(np.isnan(rollout_preds)) or max(rollout_preds) > 20:
-        print("  RESULT: FAILED (Explosion detected)")
-    else:
-        print("  RESULT: PASSED (Stable)")
-        
-        
-    # --- Test 3: Physical Sanity (Wind Flip) ---
-    print("\n[Test 3] Wind Sensitivity Check")
-    data = dataset.get(10) # Random sample
-    data = data.to(DEVICE)
-    # Batch it (unsqueeze)
-    # Actually model handles [N, F] fine without batch dim for single graph if edge_index corrects
-    # But usually need batch vector. 
-    # Geometric DataLoader handles this. Let's use loader again for a single batch.
-    sample_loader = DataLoader([dataset.get(10)], batch_size=1)
-    data = next(iter(sample_loader)).to(DEVICE)
-    
-    with torch.no_grad():
-        # Original
-        _, delta_orig = model(data)
-        
-        # Flipped Wind
-        data_flip = data.clone()
-        # Flip U and V (indices 1 and 2)
-        data_flip.x[:, 1] = -data_flip.x[:, 1]
-        data_flip.x[:, 2] = -data_flip.x[:, 2]
-        
-        _, delta_flip = model(data_flip)
-        
-        # Compare deltas
-        # Correlation
-        corr = torch.corrcoef(torch.stack([delta_orig.flatten(), delta_flip.flatten()]))[0, 1].item()
-        print(f"  Correlation between Original and Flipped Wind Delta: {corr:.4f}")
-        
-        if corr < 0.9: # If wind matters, changing it drastically should change the pattern (lower corr)
-            print("  RESULT: PASSED (Sensitive to Wind)")
-        else:
-            print("  RESULT: WARNING (Model may be ignoring wind)")
-            
+    print(f"Loaded {model_path}")
 
-    # --- Test 4: Robustness (Masking) ---
-    print("\n[Test 4] Robustness (20% Masking)")
-    mask_mse = 0
-    clean_mse = 0
-    
+    # --- Test 1: Skill vs persistence (1-step ahead, pooled over all cells) ---
+    preds, trues, persist = [], [], []
+    loader = DataLoader(ds, batch_size=1, shuffle=False)
     with torch.no_grad():
-        # Single pass on subset
-        data = next(iter(loader)).to(DEVICE)
-        
-        # Clean
-        pred_clean, _ = model(data)
-        clean_mse = mse_crit(pred_clean, data.y).item()
-        
-        # Masked
-        mask = torch.rand_like(data.x[:, 0]) > 0.2 # Keep 80%
-        data_masked = data.clone()
-        # Zero out masked nodes (PM10 feature only or all?)
-        # Let's zero out PM10 input for 20% of nodes
-        data_masked.x[~mask, 0] = 0 
-        
-        pred_masked, _ = model(data_masked)
-        mask_mse = mse_crit(pred_masked, data.y).item()
-        
-    print(f"  Clean MSE:  {clean_mse:.5f}")
-    print(f"  Masked MSE: {mask_mse:.5f}")
-    print(f"  degradation: {mask_mse - clean_mse:.5f}")
-    
-    if mask_mse < clean_mse * 2.0:
-        print("  RESULT: PASSED (Robustness acceptable)")
-    else:
-        print("  RESULT: WARNING (High Sensitivity to defects)")
-        
-    # --- Test 5: Inference Speed ---
-    print("\n[Test 5] Latency Profiling")
-    start = time.time()
+        for data in loader:
+            data = data.to(device)
+            p, _ = model(data)
+            preds.append(p.cpu().numpy().ravel())
+            trues.append(data.y.cpu().numpy().ravel())
+            persist.append(data.x[:, 0:1].cpu().numpy().ravel())
+    yhat, y, pp = map(np.concatenate, (preds, trues, persist))
+
+    m_model = metrics(yhat, y)
+    m_persist = metrics(pp, y)
+    print("\n[Test 1] Skill vs persistence (log-space, 1-step)")
+    print(f"  {'metric':<6} {'PI-GNN':>10} {'persistence':>12}")
+    for k in ("MSE", "RMSE", "MAE", "R2"):
+        print(f"  {k:<6} {m_model[k]:>10.4f} {m_persist[k]:>12.4f}")
+    impr = (m_persist["MSE"] - m_model["MSE"]) / m_persist["MSE"] * 100
+    verdict = "beats" if impr > 0 else "trails"
+    print(f"  -> PI-GNN {verdict} persistence by {impr:+.2f}% MSE")
+
+    # --- Test 2: Mass-conservation diagnostic (not an optimisation target) ---
+    mc_log = mass_conservation_error(torch.tensor(yhat), torch.tensor(y)) * 100
+    yhat_phys = np.expm1(np.clip(yhat, 0, None))
+    y_phys = np.expm1(y)
+    mc_phys = abs(yhat_phys.mean() - y_phys.mean()) / y_phys.mean() * 100
+    print("\n[Test 2] Mass-conservation diagnostic (domain-mean error)")
+    print(f"  log-space:      {mc_log:.2f}%")
+    print(f"  physical-space: {mc_phys:.2f}%")
+
+    # --- Test 3: Autoregressive rollout stability (uses true future forcing) ---
+    steps = 6
+    data = ds.get(0)
+    g = data.clone()
+    g.x = g.x.to(device); g.edge_index = g.edge_index.to(device); g.pos = g.pos.to(device)
+    traj = []
+    with torch.no_grad():
+        for s in range(steps):
+            pm10_next, _ = model(g)
+            traj.append(float(pm10_next.mean()))
+            future = ds.get(min(s + 1, len(ds) - 1)).x[:, 1:].to(device)  # true future forcing
+            g.x = torch.cat([pm10_next, future], dim=1)
+    stable = not (any(np.isnan(traj)) or max(traj) > 20)
+    print(f"\n[Test 3] Autoregressive rollout ({steps} steps / 72 h, true forcing)")
+    print(f"  mean log-PM10 trajectory: {[round(t, 3) for t in traj]}")
+    print(f"  -> {'PASSED (stable)' if stable else 'FAILED (explosion)'}")
+
+    # --- Test 4: Wind sensitivity (flip winds, expect delta to change) ---
+    sample = next(iter(DataLoader([ds.get(min(10, len(ds) - 1))], batch_size=1))).to(device)
+    with torch.no_grad():
+        _, d_orig = model(sample)
+        flip = sample.clone()
+        flip.x[:, 1] = -flip.x[:, 1]
+        flip.x[:, 2] = -flip.x[:, 2]
+        _, d_flip = model(flip)
+        corr = torch.corrcoef(torch.stack([d_orig.flatten(), d_flip.flatten()]))[0, 1].item()
+    print("\n[Test 4] Wind sensitivity")
+    print(f"  corr(delta_orig, delta_flipped) = {corr:.4f}")
+    print(f"  -> {'sensitive to wind' if corr < 0.9 else 'WARNING: may ignore wind'}")
+
+    # --- Test 5: Latency ---
+    g1 = next(iter(DataLoader([ds.get(0)], batch_size=1))).to(device)
+    for _ in range(10):
+        with torch.no_grad():
+            model(g1)
+    t0 = time.time()
     for _ in range(100):
         with torch.no_grad():
-            _ = model(data)
-    end = time.time()
-    avg_time = (end - start) / 100
-    print(f"  Avg Inference Time: {avg_time*1000:.2f} ms")
-    if avg_time < 0.05:
-         print("  RESULT: PASSED (Production Ready Speed)")
-    else:
-         print("  RESULT: WARNING (Slow)")
+            model(g1)
+    ms = (time.time() - t0) / 100 * 1000
+    print(f"\n[Test 5] Latency: {ms:.2f} ms/step ({'production-ready' if ms < 50 else 'slow'})")
+
+    # Persist a machine-readable summary.
+    out = {
+        "test_years": test_years,
+        "n_samples": len(ds),
+        "model": m_model,
+        "persistence": m_persist,
+        "improvement_pct_mse": impr,
+        "mass_cons_pct_log": mc_log,
+        "mass_cons_pct_phys": float(mc_phys),
+        "rollout_stable": bool(stable),
+        "wind_flip_corr": corr,
+        "latency_ms": ms,
+    }
+    summary_path = resolve("results/benchmark_summary.json")
+    with open(summary_path, "w") as f:
+        json.dump(out, f, indent=2)
+    print(f"\nSaved summary -> {summary_path}")
+
 
 if __name__ == "__main__":
-    benchmark()
+    main()

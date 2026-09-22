@@ -1,0 +1,1004 @@
+{
+  "rows": [
+    {
+      "label": "persistence",
+      "n_points": 733422,
+      "TS": 0.5861226549119056,
+      "POD": 0.6967549480728559,
+      "FAR": 0.2131577071153572,
+      "hits": 44145,
+      "false_alarms": 11959,
+      "misses": 19213,
+      "events_observed": 63358,
+      "RE_mean": -0.31093847535901176,
+      "RE_median": -0.6431954256387549,
+      "RE_q1": -16.959393653945913,
+      "RE_q3": 14.744684394793772,
+      "RE_coverage": 0.9806850626242464,
+      "R_spatial_mean": 0.8931630129472052,
+      "R_spatial_median": 0.9096665422131599,
+      "R_temporal_mean": 0.9098951335455322,
+      "R_temporal_median": 0.9058981577610568,
+      "RMSE_ugm3": 32.40344342700662,
+      "MAE_ugm3": 19.210003481226952,
+      "R2_log": 0.8632868253801964,
+      "emis_TS": 0.6545072656350465,
+      "emis_RMSE_ugm3": 56.24679495076176,
+      "emis_RE_mean": -8.8646746140364,
+      "emis_n": 124889,
+      "noemis_TS": 0.474789769356921,
+      "noemis_RMSE_ugm3": 24.8230825621546,
+      "noemis_RE_mean": 1.4792633393452828,
+      "noemis_n": 608533
+    },
+    {
+      "label": "M2_SRC",
+      "n_points": 733422,
+      "TS": 0.7147416434835412,
+      "POD": 0.7988415038353484,
+      "FAR": 0.12838396362884893,
+      "hits": 50613,
+      "false_alarms": 7455,
+      "misses": 12745,
+      "events_observed": 63358,
+      "RE_mean": 1.7027904072838291,
+      "RE_median": 0.4267895745984229,
+      "RE_q1": -10.931661955871085,
+      "RE_q3": 12.742946032073961,
+      "RE_coverage": 0.9806850626242464,
+      "R_spatial_mean": 0.9412840140558671,
+      "R_spatial_median": 0.9492568068245961,
+      "R_temporal_mean": 0.9549838433057631,
+      "R_temporal_median": 0.9577221969091022,
+      "RMSE_ugm3": 22.033810318280896,
+      "MAE_ugm3": 13.457706851756802,
+      "R2_log": 0.9302624970265981,
+      "emis_TS": 0.7810055623153137,
+      "emis_RMSE_ugm3": 35.36705236488151,
+      "emis_RE_mean": 2.794171158151881,
+      "emis_n": 124889,
+      "noemis_TS": 0.5917140667231433,
+      "noemis_RMSE_ugm3": 18.12231878439982,
+      "noemis_RE_mean": 1.4743765575856989,
+      "noemis_n": 608533,
+      "note": "your current model, unchanged",
+      "params": 19330,
+      "train_s": 63.5,
+      "targets_per_epoch": 1999968,
+      "topology": "full",
+      "in_channels": 18,
+      "val_loss": 0.1321722012427118,
+      "pm25_RMSE_ugm3": 11.76678786288944,
+      "pm25_R2_log": 0.9354149782129951,
+      "rollout": {
+        "per_day": [
+          {
+            "lead_day": 1,
+            "TS": 0.49990818949687843,
+            "R_spatial_mean": 0.769472431381625,
+            "RMSE_ugm3": 48.476416888234525,
+            "RE_mean": 4.694026803909164
+          },
+          {
+            "lead_day": 2,
+            "TS": 0.29879419578990396,
+            "R_spatial_mean": 0.7069017446259155,
+            "RMSE_ugm3": 55.2478212430424,
+            "RE_mean": -4.199822324129645
+          },
+          {
+            "lead_day": 3,
+            "TS": 0.3343114241001565,
+            "R_spatial_mean": 0.7073364337508391,
+            "RMSE_ugm3": 54.14337419175778,
+            "RE_mean": -5.1382805352258165
+          },
+          {
+            "lead_day": 4,
+            "TS": 0.3242791475135813,
+            "R_spatial_mean": 0.6884728351917714,
+            "RMSE_ugm3": 53.05339116693989,
+            "RE_mean": -5.830222414527629
+          },
+          {
+            "lead_day": 5,
+            "TS": 0.3057022744421688,
+            "R_spatial_mean": 0.6855207248505861,
+            "RMSE_ugm3": 54.73287627206628,
+            "RE_mean": -5.802843746065657
+          },
+          {
+            "lead_day": 6,
+            "TS": 0.3018767327788441,
+            "R_spatial_mean": 0.6920705065220524,
+            "RMSE_ugm3": 56.07737093842947,
+            "RE_mean": -4.786342256967739
+          },
+          {
+            "lead_day": 7,
+            "TS": 0.340262467191601,
+            "R_spatial_mean": 0.6580357329042542,
+            "RMSE_ugm3": 58.32033233535208,
+            "RE_mean": -4.234225301497818
+          },
+          {
+            "lead_day": 8,
+            "TS": 0.27431593469763166,
+            "R_spatial_mean": 0.6850959018105257,
+            "RMSE_ugm3": 58.57083352103386,
+            "RE_mean": -6.5050965136544265
+          },
+          {
+            "lead_day": 9,
+            "TS": 0.33626487325400933,
+            "R_spatial_mean": 0.6794043258682865,
+            "RMSE_ugm3": 58.22824865948996,
+            "RE_mean": -8.8486041843288
+          },
+          {
+            "lead_day": 10,
+            "TS": 0.3134699562276164,
+            "R_spatial_mean": 0.6854975914783813,
+            "RMSE_ugm3": 64.36519325887804,
+            "RE_mean": -7.249669323215067
+          }
+        ]
+      },
+      "TS_day1": 0.49990818949687843,
+      "RMSE_day1": 48.476416888234525,
+      "TS_day10": 0.3134699562276164
+    },
+    {
+      "label": "M1_AIDUST",
+      "n_points": 733422,
+      "TS": 0.5975062559323496,
+      "POD": 0.6557498658417248,
+      "FAR": 0.1294134903505647,
+      "hits": 41547,
+      "false_alarms": 6176,
+      "misses": 21811,
+      "events_observed": 63358,
+      "RE_mean": -7.753648400941198,
+      "RE_median": -9.489570488393129,
+      "RE_q1": -21.940595979511603,
+      "RE_q3": 4.236415906550564,
+      "RE_coverage": 0.9806850626242464,
+      "R_spatial_mean": 0.9169205350401421,
+      "R_spatial_median": 0.9299106360790367,
+      "R_temporal_mean": 0.9275434467556186,
+      "R_temporal_median": 0.9317275267654386,
+      "RMSE_ugm3": 29.897476894535462,
+      "MAE_ugm3": 18.017360075132206,
+      "R2_log": 0.8368010989890159,
+      "emis_TS": 0.6064480266814897,
+      "emis_RMSE_ugm3": 54.476690820317415,
+      "emis_RE_mean": -11.500043227127717,
+      "emis_n": 124889,
+      "noemis_TS": 0.5828590940132028,
+      "noemis_RMSE_ugm3": 21.63893521882995,
+      "noemis_RE_mean": -6.969569641939994,
+      "noemis_n": 608533,
+      "note": "AI-DUST as published (surface-only adaptation)",
+      "params": 181512,
+      "train_s": 210.2,
+      "targets_per_epoch": 33369,
+      "topology": "patch",
+      "in_channels": 21,
+      "val_loss": 0.13118026964366436,
+      "rollout": {
+        "per_day": [
+          {
+            "lead_day": 1,
+            "TS": 0.31819261370383567,
+            "R_spatial_mean": 0.5531530304724792,
+            "RMSE_ugm3": NaN,
+            "RE_mean": NaN
+          },
+          {
+            "lead_day": 2,
+            "TS": 0.19615110477548112,
+            "R_spatial_mean": 0.2650774363888481,
+            "RMSE_ugm3": NaN,
+            "RE_mean": NaN
+          },
+          {
+            "lead_day": 3,
+            "TS": 0.14895385217051232,
+            "R_spatial_mean": 0.11800009957680903,
+            "RMSE_ugm3": NaN,
+            "RE_mean": NaN
+          },
+          {
+            "lead_day": 4,
+            "TS": 0.07405293572091032,
+            "R_spatial_mean": 0.09611228297557532,
+            "RMSE_ugm3": NaN,
+            "RE_mean": NaN
+          },
+          {
+            "lead_day": 5,
+            "TS": 0.023643256185155625,
+            "R_spatial_mean": 0.15933174262708613,
+            "RMSE_ugm3": NaN,
+            "RE_mean": NaN
+          },
+          {
+            "lead_day": 6,
+            "TS": 0.020281170776676655,
+            "R_spatial_mean": 0.1453926559245028,
+            "RMSE_ugm3": NaN,
+            "RE_mean": NaN
+          },
+          {
+            "lead_day": 7,
+            "TS": 0.019370987049733376,
+            "R_spatial_mean": -0.022845390809165898,
+            "RMSE_ugm3": NaN,
+            "RE_mean": NaN
+          },
+          {
+            "lead_day": 8,
+            "TS": 0.0,
+            "R_spatial_mean": NaN,
+            "RMSE_ugm3": NaN,
+            "RE_mean": NaN
+          },
+          {
+            "lead_day": 9,
+            "TS": 0.0,
+            "R_spatial_mean": NaN,
+            "RMSE_ugm3": NaN,
+            "RE_mean": NaN
+          },
+          {
+            "lead_day": 10,
+            "TS": 0.0,
+            "R_spatial_mean": NaN,
+            "RMSE_ugm3": NaN,
+            "RE_mean": NaN
+          }
+        ]
+      },
+      "TS_day1": 0.31819261370383567,
+      "RMSE_day1": NaN,
+      "TS_day10": 0.0
+    },
+    {
+      "label": "M5_SRC+emission",
+      "n_points": 733422,
+      "TS": 0.721558231488138,
+      "POD": 0.7603933204962278,
+      "FAR": 0.06610192490356097,
+      "hits": 48177,
+      "false_alarms": 3410,
+      "misses": 15181,
+      "events_observed": 63358,
+      "RE_mean": -2.8373414282783713,
+      "RE_median": -3.936869786990675,
+      "RE_q1": -12.977109385532957,
+      "RE_q3": 6.038929870430539,
+      "RE_coverage": 0.9806850626242464,
+      "R_spatial_mean": 0.95973925056278,
+      "R_spatial_median": 0.9666878848197016,
+      "R_temporal_mean": 0.9670979895324763,
+      "R_temporal_median": 0.9703473724254695,
+      "RMSE_ugm3": 19.438132012226195,
+      "MAE_ugm3": 11.872286040859272,
+      "R2_log": 0.9447181672785202,
+      "emis_TS": 0.7773769530809641,
+      "emis_RMSE_ugm3": 32.54434958057801,
+      "emis_RE_mean": -1.7572955606358096,
+      "emis_n": 124889,
+      "noemis_TS": 0.6111086326120901,
+      "noemis_RMSE_ugm3": 15.427874840879964,
+      "noemis_RE_mean": -3.0633830130164004,
+      "noemis_n": 608533,
+      "note": "Shao emission E/H and u* as inputs",
+      "params": 19714,
+      "train_s": 64.7,
+      "targets_per_epoch": 1999968,
+      "topology": "full",
+      "in_channels": 21,
+      "val_loss": 0.1220083340174622,
+      "pm25_RMSE_ugm3": 11.721622557621973,
+      "pm25_R2_log": 0.9420128890036155,
+      "rollout": {
+        "per_day": [
+          {
+            "lead_day": 1,
+            "TS": 0.530436484634958,
+            "R_spatial_mean": 0.8204030676520674,
+            "RMSE_ugm3": 43.245256105282415,
+            "RE_mean": -7.223712561815402
+          },
+          {
+            "lead_day": 2,
+            "TS": 0.40561359079877596,
+            "R_spatial_mean": 0.7702128627236872,
+            "RMSE_ugm3": 51.24463169852394,
+            "RE_mean": -15.852199634924817
+          },
+          {
+            "lead_day": 3,
+            "TS": 0.41770359129994944,
+            "R_spatial_mean": 0.7785183985283842,
+            "RMSE_ugm3": 50.51342003811552,
+            "RE_mean": -16.694689566448375
+          },
+          {
+            "lead_day": 4,
+            "TS": 0.3985452176745196,
+            "R_spatial_mean": 0.7683717753299146,
+            "RMSE_ugm3": 48.09336987456127,
+            "RE_mean": -16.919273854453767
+          },
+          {
+            "lead_day": 5,
+            "TS": 0.4180011043622308,
+            "R_spatial_mean": 0.7671546775344696,
+            "RMSE_ugm3": 50.709157179626686,
+            "RE_mean": -16.324960206877314
+          },
+          {
+            "lead_day": 6,
+            "TS": 0.401276062435912,
+            "R_spatial_mean": 0.7573835822414167,
+            "RMSE_ugm3": 50.239929808810096,
+            "RE_mean": -16.04191449089934
+          },
+          {
+            "lead_day": 7,
+            "TS": 0.47005503399158305,
+            "R_spatial_mean": 0.760376108727128,
+            "RMSE_ugm3": 48.521155478644744,
+            "RE_mean": -15.011627945948243
+          },
+          {
+            "lead_day": 8,
+            "TS": 0.3904773443179065,
+            "R_spatial_mean": 0.7646030799111226,
+            "RMSE_ugm3": 49.81643489300091,
+            "RE_mean": -18.09273944301017
+          },
+          {
+            "lead_day": 9,
+            "TS": 0.3930011991714815,
+            "R_spatial_mean": 0.7505471111374105,
+            "RMSE_ugm3": 55.137151844573744,
+            "RE_mean": -20.685417527925445
+          },
+          {
+            "lead_day": 10,
+            "TS": 0.388689505165851,
+            "R_spatial_mean": 0.7621088841540863,
+            "RMSE_ugm3": 54.50589409062507,
+            "RE_mean": -19.962063622838077
+          }
+        ]
+      },
+      "TS_day1": 0.530436484634958,
+      "RMSE_day1": 43.245256105282415,
+      "TS_day10": 0.388689505165851
+    },
+    {
+      "label": "M16_SRC+futuremet",
+      "n_points": 733422,
+      "TS": 0.7726403770061797,
+      "POD": 0.8228952934120395,
+      "FAR": 0.07325180418784884,
+      "hits": 52137,
+      "false_alarms": 4121,
+      "misses": 11221,
+      "events_observed": 63358,
+      "RE_mean": -3.2657582710629747,
+      "RE_median": -3.8018272560824373,
+      "RE_q1": -11.919213649999104,
+      "RE_q3": 4.672978945222374,
+      "RE_coverage": 0.9806850626242464,
+      "R_spatial_mean": 0.9678046808272077,
+      "R_spatial_median": 0.973259357572801,
+      "R_temporal_mean": 0.9733997315596798,
+      "R_temporal_median": 0.9765923873173213,
+      "RMSE_ugm3": 16.92157999321296,
+      "MAE_ugm3": 10.293681227389154,
+      "R2_log": 0.9527046551954312,
+      "emis_TS": 0.8244465789532468,
+      "emis_RMSE_ugm3": 27.66475153874627,
+      "emis_RE_mean": -0.1819859010964986,
+      "emis_n": 124889,
+      "noemis_TS": 0.6705265938710814,
+      "noemis_RMSE_ugm3": 13.712591448857992,
+      "noemis_RE_mean": -3.9111575215596788,
+      "noemis_n": 608533,
+      "note": "meteorology at t+dt as forcing",
+      "params": 20098,
+      "train_s": 65.5,
+      "targets_per_epoch": 1999968,
+      "topology": "full",
+      "in_channels": 24,
+      "val_loss": 0.11817400045101605,
+      "pm25_RMSE_ugm3": 9.835688720064967,
+      "pm25_R2_log": 0.9517972216946565,
+      "rollout": {
+        "per_day": [
+          {
+            "lead_day": 1,
+            "TS": 0.5669744811835965,
+            "R_spatial_mean": 0.8525702057594281,
+            "RMSE_ugm3": 38.87476123760178,
+            "RE_mean": -9.069390040308152
+          },
+          {
+            "lead_day": 2,
+            "TS": 0.44271824138659904,
+            "R_spatial_mean": 0.8037482010737782,
+            "RMSE_ugm3": 47.58060134080131,
+            "RE_mean": -17.905033434850004
+          },
+          {
+            "lead_day": 3,
+            "TS": 0.4543879319131587,
+            "R_spatial_mean": 0.8099283858419333,
+            "RMSE_ugm3": 46.06097144423675,
+            "RE_mean": -18.71754332750041
+          },
+          {
+            "lead_day": 4,
+            "TS": 0.4234354194407457,
+            "R_spatial_mean": 0.8018186271365847,
+            "RMSE_ugm3": 45.71332065786755,
+            "RE_mean": -19.41321107422983
+          },
+          {
+            "lead_day": 5,
+            "TS": 0.4348224513172967,
+            "R_spatial_mean": 0.8035936580519077,
+            "RMSE_ugm3": 47.56615031286776,
+            "RE_mean": -18.926033434225257
+          },
+          {
+            "lead_day": 6,
+            "TS": 0.4772700436887472,
+            "R_spatial_mean": 0.8013307613485793,
+            "RMSE_ugm3": 44.90813075775294,
+            "RE_mean": -19.29411906009437
+          },
+          {
+            "lead_day": 7,
+            "TS": 0.5324869305451829,
+            "R_spatial_mean": 0.7961457356171046,
+            "RMSE_ugm3": 46.622580398992426,
+            "RE_mean": -19.078987518976657
+          },
+          {
+            "lead_day": 8,
+            "TS": 0.45849514563106797,
+            "R_spatial_mean": 0.794265384440206,
+            "RMSE_ugm3": 47.84530124904864,
+            "RE_mean": -21.73916672776456
+          },
+          {
+            "lead_day": 9,
+            "TS": 0.46167228444057845,
+            "R_spatial_mean": 0.790492914199385,
+            "RMSE_ugm3": 52.32084094468204,
+            "RE_mean": -22.976280591152832
+          },
+          {
+            "lead_day": 10,
+            "TS": 0.44331004836109617,
+            "R_spatial_mean": 0.8013026157224389,
+            "RMSE_ugm3": 53.304449666229715,
+            "RE_mean": -21.409143601345114
+          }
+        ]
+      },
+      "TS_day1": 0.5669744811835965,
+      "RMSE_day1": 38.87476123760178,
+      "TS_day10": 0.44331004836109617
+    },
+    {
+      "label": "M24b_MIX-CORE",
+      "n_points": 733422,
+      "TS": 0.7223935747877603,
+      "POD": 0.7467249597525174,
+      "FAR": 0.04315906562847609,
+      "hits": 47311,
+      "false_alarms": 2134,
+      "misses": 16047,
+      "events_observed": 63358,
+      "RE_mean": -2.1015340604899087,
+      "RE_median": -3.4398453366143493,
+      "RE_q1": -11.805999034905211,
+      "RE_q3": 5.861429138623774,
+      "RE_coverage": 0.9806850626242464,
+      "R_spatial_mean": 0.967167657553895,
+      "R_spatial_median": 0.9723249095684279,
+      "R_temporal_mean": 0.9729570429086226,
+      "R_temporal_median": 0.9752593858812005,
+      "RMSE_ugm3": 19.19987439279542,
+      "MAE_ugm3": 11.288103432568322,
+      "R2_log": 0.9487707838884103,
+      "emis_TS": 0.7614204928905541,
+      "emis_RMSE_ugm3": 35.02814648297664,
+      "emis_RE_mean": -6.343643761498213,
+      "emis_n": 124889,
+      "noemis_TS": 0.6479285999733582,
+      "noemis_RMSE_ugm3": 13.873688307421297,
+      "noemis_RE_mean": -1.213707692947315,
+      "noemis_n": 608533,
+      "note": "the two biggest wins only: future met + emission",
+      "params": 20482,
+      "train_s": 68.0,
+      "targets_per_epoch": 1999968,
+      "topology": "full",
+      "in_channels": 27,
+      "val_loss": 0.11939521157552326,
+      "pm25_RMSE_ugm3": 10.28740704557063,
+      "pm25_R2_log": 0.9510183930047116,
+      "rollout": {
+        "per_day": [
+          {
+            "lead_day": 1,
+            "TS": 0.45943184140609034,
+            "R_spatial_mean": 0.8487183421962143,
+            "RMSE_ugm3": 43.46639164454139,
+            "RE_mean": -3.5519728935890758
+          },
+          {
+            "lead_day": 2,
+            "TS": 0.30093520374081495,
+            "R_spatial_mean": 0.8035082327194308,
+            "RMSE_ugm3": 49.260121110915996,
+            "RE_mean": -9.002417345647276
+          },
+          {
+            "lead_day": 3,
+            "TS": 0.3433123062119106,
+            "R_spatial_mean": 0.8002746778302253,
+            "RMSE_ugm3": 47.96237854007265,
+            "RE_mean": -8.966352757618901
+          },
+          {
+            "lead_day": 4,
+            "TS": 0.3221843003412969,
+            "R_spatial_mean": 0.7882872550384357,
+            "RMSE_ugm3": 46.42270518423951,
+            "RE_mean": -8.849452216469524
+          },
+          {
+            "lead_day": 5,
+            "TS": 0.3312492627108647,
+            "R_spatial_mean": 0.7881283055990936,
+            "RMSE_ugm3": 48.04352009462522,
+            "RE_mean": -8.112181050106631
+          },
+          {
+            "lead_day": 6,
+            "TS": 0.378511998070662,
+            "R_spatial_mean": 0.7898657483022685,
+            "RMSE_ugm3": 45.83855300684714,
+            "RE_mean": -8.086011460805416
+          },
+          {
+            "lead_day": 7,
+            "TS": 0.4019224321001453,
+            "R_spatial_mean": 0.7894141809441012,
+            "RMSE_ugm3": 47.137256438721515,
+            "RE_mean": -8.487286688470126
+          },
+          {
+            "lead_day": 8,
+            "TS": 0.3422077106618109,
+            "R_spatial_mean": 0.7813967430670683,
+            "RMSE_ugm3": 49.68197176547474,
+            "RE_mean": -12.173916673591155
+          },
+          {
+            "lead_day": 9,
+            "TS": 0.3185053380782918,
+            "R_spatial_mean": 0.7684841324201287,
+            "RMSE_ugm3": 54.93397551038029,
+            "RE_mean": -13.305070652653662
+          },
+          {
+            "lead_day": 10,
+            "TS": 0.2827679477065254,
+            "R_spatial_mean": 0.7841402731977967,
+            "RMSE_ugm3": 55.808465960497024,
+            "RE_mean": -12.230005905486367
+          }
+        ]
+      },
+      "TS_day1": 0.45943184140609034,
+      "RMSE_day1": 43.46639164454139,
+      "TS_day10": 0.2827679477065254
+    },
+    {
+      "label": "M24_MIX-LITE",
+      "n_points": 733422,
+      "TS": 0.7709451644473442,
+      "POD": 0.8205909277439313,
+      "FAR": 0.07276488737493535,
+      "hits": 51991,
+      "false_alarms": 4080,
+      "misses": 11367,
+      "events_observed": 63358,
+      "RE_mean": -0.4474761757767791,
+      "RE_median": -1.392977750080249,
+      "RE_q1": -9.514276332398984,
+      "RE_q3": 7.234114227313226,
+      "RE_coverage": 0.9806850626242464,
+      "R_spatial_mean": 0.96948871742427,
+      "R_spatial_median": 0.9742387302821995,
+      "R_temporal_mean": 0.9743142857361227,
+      "R_temporal_median": 0.9771735070142508,
+      "RMSE_ugm3": 16.948189648203037,
+      "MAE_ugm3": 10.049629485321617,
+      "R2_log": 0.9518605788793644,
+      "emis_TS": 0.8127189315012768,
+      "emis_RMSE_ugm3": 29.713094345014795,
+      "emis_RE_mean": -2.7444867406385685,
+      "emis_n": 124889,
+      "noemis_TS": 0.691232912156626,
+      "noemis_RMSE_ugm3": 12.845265979486973,
+      "noemis_RE_mean": 0.033262581526803316,
+      "noemis_n": 608533,
+      "note": "every idea worth >=+0.025 TS, on the plain backbone",
+      "params": 21122,
+      "train_s": 71.7,
+      "targets_per_epoch": 1999968,
+      "topology": "full",
+      "in_channels": 29,
+      "val_loss": 0.12349243065904057,
+      "pm25_RMSE_ugm3": 9.482228822378168,
+      "pm25_R2_log": 0.9534372526450327,
+      "rollout": {
+        "per_day": [
+          {
+            "lead_day": 1,
+            "TS": 0.5667669309999088,
+            "R_spatial_mean": 0.8182149630976457,
+            "RMSE_ugm3": 42.02942457512163,
+            "RE_mean": 2.0620070237253065
+          },
+          {
+            "lead_day": 2,
+            "TS": 0.46143629636656863,
+            "R_spatial_mean": 0.7483096657402285,
+            "RMSE_ugm3": 52.476204572413714,
+            "RE_mean": -4.346691166904698
+          },
+          {
+            "lead_day": 3,
+            "TS": 0.45009382539540704,
+            "R_spatial_mean": 0.7368310414561446,
+            "RMSE_ugm3": 52.20371375343606,
+            "RE_mean": -4.179668740483474
+          },
+          {
+            "lead_day": 4,
+            "TS": 0.4160346695557963,
+            "R_spatial_mean": 0.7121878035197868,
+            "RMSE_ugm3": 51.98797353720542,
+            "RE_mean": -5.285156020437018
+          },
+          {
+            "lead_day": 5,
+            "TS": 0.40175867122618464,
+            "R_spatial_mean": 0.702091377982999,
+            "RMSE_ugm3": 54.713129883381534,
+            "RE_mean": -1.8455925881174704
+          },
+          {
+            "lead_day": 6,
+            "TS": 0.4546,
+            "R_spatial_mean": 0.7135284910161465,
+            "RMSE_ugm3": 49.473340341916305,
+            "RE_mean": -2.56065898880362
+          },
+          {
+            "lead_day": 7,
+            "TS": 0.46903142804631504,
+            "R_spatial_mean": 0.6752274667258812,
+            "RMSE_ugm3": 55.713611183719266,
+            "RE_mean": -0.9335902889275228
+          },
+          {
+            "lead_day": 8,
+            "TS": 0.4344,
+            "R_spatial_mean": 0.6879278675391031,
+            "RMSE_ugm3": 53.85558182501473,
+            "RE_mean": -4.85821605985893
+          },
+          {
+            "lead_day": 9,
+            "TS": 0.4348518935133108,
+            "R_spatial_mean": 0.6884945985691098,
+            "RMSE_ugm3": 56.13524636595851,
+            "RE_mean": -6.174644244761144
+          },
+          {
+            "lead_day": 10,
+            "TS": 0.39227491663579106,
+            "R_spatial_mean": 0.7068451279099354,
+            "RMSE_ugm3": 57.36551532635602,
+            "RE_mean": -5.959979282404966
+          }
+        ]
+      },
+      "TS_day1": 0.5667669309999088,
+      "RMSE_day1": 42.02942457512163,
+      "TS_day10": 0.39227491663579106
+    },
+    {
+      "label": "M23_FLUXGAT",
+      "n_points": 733422,
+      "TS": 0.6783175828563822,
+      "POD": 0.8043498847817165,
+      "FAR": 0.18764944049478752,
+      "hits": 50962,
+      "false_alarms": 11772,
+      "misses": 12396,
+      "events_observed": 63358,
+      "RE_mean": -0.011760164791464698,
+      "RE_median": -1.7365637533983322,
+      "RE_q1": -13.535278564713648,
+      "RE_q3": 10.414006901418702,
+      "RE_coverage": 0.9806850626242464,
+      "R_spatial_mean": 0.9105847361558217,
+      "R_spatial_median": 0.929292305273236,
+      "R_temporal_mean": 0.9236315376528594,
+      "R_temporal_median": 0.9408885624156056,
+      "RMSE_ugm3": 27.76013371648435,
+      "MAE_ugm3": 15.454991407463329,
+      "R2_log": 0.9005243366743426,
+      "emis_TS": 0.7202313291454782,
+      "emis_RMSE_ugm3": 52.13731150862495,
+      "emis_RE_mean": 9.575302705467369,
+      "emis_n": 124889,
+      "noemis_TS": 0.5941965179107465,
+      "noemis_RMSE_ugm3": 19.258882903627754,
+      "noemis_RE_mean": -2.0182257688000655,
+      "noemis_n": 608533,
+      "note": "attention conditioned on your physical edge terms",
+      "params": 134752,
+      "train_s": 251.4,
+      "targets_per_epoch": 1999968,
+      "topology": "full",
+      "in_channels": 29,
+      "val_loss": 0.1436651653004071,
+      "pm25_RMSE_ugm3": 14.072549899507504,
+      "pm25_R2_log": 0.9229825426368675,
+      "rollout": {
+        "per_day": [
+          {
+            "lead_day": 1,
+            "TS": 0.38885166822993433,
+            "R_spatial_mean": 0.639590112712857,
+            "RMSE_ugm3": 121.44015161204482,
+            "RE_mean": 13.612608021219964
+          },
+          {
+            "lead_day": 2,
+            "TS": 0.3238077332831986,
+            "R_spatial_mean": 0.5627638074457691,
+            "RMSE_ugm3": 138.48865477352922,
+            "RE_mean": 13.584775855858565
+          },
+          {
+            "lead_day": 3,
+            "TS": 0.3285467437287732,
+            "R_spatial_mean": 0.5643848740237227,
+            "RMSE_ugm3": 572.0710302496983,
+            "RE_mean": 16.66285701818916
+          },
+          {
+            "lead_day": 4,
+            "TS": 0.2833254549751832,
+            "R_spatial_mean": 0.5428957135034292,
+            "RMSE_ugm3": NaN,
+            "RE_mean": NaN
+          },
+          {
+            "lead_day": 5,
+            "TS": 0.25142070945743855,
+            "R_spatial_mean": 0.5137552101240747,
+            "RMSE_ugm3": NaN,
+            "RE_mean": NaN
+          },
+          {
+            "lead_day": 6,
+            "TS": 0.26341861413835305,
+            "R_spatial_mean": 0.5015485528072872,
+            "RMSE_ugm3": NaN,
+            "RE_mean": NaN
+          },
+          {
+            "lead_day": 7,
+            "TS": 0.30529994175888175,
+            "R_spatial_mean": 0.5260615294911224,
+            "RMSE_ugm3": NaN,
+            "RE_mean": NaN
+          },
+          {
+            "lead_day": 8,
+            "TS": 0.27494139098723624,
+            "R_spatial_mean": 0.5389802274303032,
+            "RMSE_ugm3": NaN,
+            "RE_mean": NaN
+          },
+          {
+            "lead_day": 9,
+            "TS": 0.2756511319921801,
+            "R_spatial_mean": 0.5379112547261035,
+            "RMSE_ugm3": NaN,
+            "RE_mean": NaN
+          },
+          {
+            "lead_day": 10,
+            "TS": 0.23973171510699456,
+            "R_spatial_mean": 0.5481523590699743,
+            "RMSE_ugm3": NaN,
+            "RE_mean": NaN
+          }
+        ]
+      },
+      "TS_day1": 0.38885166822993433,
+      "RMSE_day1": 121.44015161204482,
+      "TS_day10": 0.23973171510699456
+    },
+    {
+      "label": "M25_MIX-FULL",
+      "n_points": 733422,
+      "TS": 0.7091894653195595,
+      "POD": 0.788819091511727,
+      "FAR": 0.1246058992503328,
+      "hits": 49978,
+      "false_alarms": 7114,
+      "misses": 13380,
+      "events_observed": 63358,
+      "RE_mean": -4.632670596520215,
+      "RE_median": -5.381954395170853,
+      "RE_q1": -16.038399894754768,
+      "RE_q3": 5.577906612749823,
+      "RE_coverage": 0.9806850626242464,
+      "R_spatial_mean": 0.9359191626665874,
+      "R_spatial_median": 0.9451211844121061,
+      "R_temporal_mean": 0.9499223906370399,
+      "R_temporal_median": 0.9588941301203213,
+      "RMSE_ugm3": 23.65913881097514,
+      "MAE_ugm3": 13.903319314307634,
+      "R2_log": 0.9165562760748535,
+      "emis_TS": 0.7636493630297253,
+      "emis_RMSE_ugm3": 40.76762727036798,
+      "emis_RE_mean": -1.5312677205283205,
+      "emis_n": 124889,
+      "noemis_TS": 0.6058151011679552,
+      "noemis_RMSE_ugm3": 18.26312146222801,
+      "noemis_RE_mean": -5.281759715791122,
+      "noemis_n": 608533,
+      "note": "every idea on, your full-domain graph",
+      "params": 269504,
+      "train_s": 547.0,
+      "targets_per_epoch": 1999968,
+      "topology": "full",
+      "in_channels": 29,
+      "val_loss": 0.13461591941969736,
+      "pm25_RMSE_ugm3": 13.17978017388589,
+      "pm25_R2_log": 0.9225142666050002,
+      "rollout": {
+        "per_day": [
+          {
+            "lead_day": 1,
+            "TS": 0.34643703182021895,
+            "R_spatial_mean": 0.6169945772233174,
+            "RMSE_ugm3": NaN,
+            "RE_mean": NaN
+          },
+          {
+            "lead_day": 2,
+            "TS": 0.19716725130716792,
+            "R_spatial_mean": 0.4898776313213383,
+            "RMSE_ugm3": NaN,
+            "RE_mean": NaN
+          },
+          {
+            "lead_day": 3,
+            "TS": 0.14460801577798127,
+            "R_spatial_mean": 0.47531339768488,
+            "RMSE_ugm3": NaN,
+            "RE_mean": NaN
+          },
+          {
+            "lead_day": 4,
+            "TS": 0.12409000661813369,
+            "R_spatial_mean": 0.4534557128343439,
+            "RMSE_ugm3": NaN,
+            "RE_mean": NaN
+          },
+          {
+            "lead_day": 5,
+            "TS": 0.08304617505168849,
+            "R_spatial_mean": 0.44754249820618436,
+            "RMSE_ugm3": NaN,
+            "RE_mean": NaN
+          },
+          {
+            "lead_day": 6,
+            "TS": 0.09053980862971656,
+            "R_spatial_mean": 0.4497014828542144,
+            "RMSE_ugm3": NaN,
+            "RE_mean": NaN
+          },
+          {
+            "lead_day": 7,
+            "TS": 0.03940982333527471,
+            "R_spatial_mean": 0.4521897296233113,
+            "RMSE_ugm3": NaN,
+            "RE_mean": NaN
+          },
+          {
+            "lead_day": 8,
+            "TS": 0.059818664307828395,
+            "R_spatial_mean": 0.5311155680388401,
+            "RMSE_ugm3": NaN,
+            "RE_mean": NaN
+          },
+          {
+            "lead_day": 9,
+            "TS": 0.0511200459506031,
+            "R_spatial_mean": 0.5409106657024333,
+            "RMSE_ugm3": NaN,
+            "RE_mean": NaN
+          },
+          {
+            "lead_day": 10,
+            "TS": 0.047968764525425305,
+            "R_spatial_mean": 0.5356165966463724,
+            "RMSE_ugm3": NaN,
+            "RE_mean": NaN
+          }
+        ]
+      },
+      "TS_day1": 0.34643703182021895,
+      "RMSE_day1": NaN,
+      "TS_day10": 0.047968764525425305
+    }
+  ],
+  "drivers": {
+    "u*": "log-law proxy (z0=0.01 m)",
+    "soil moisture": "precip-decay proxy",
+    "roughness": "ERA5 fsr present but UNUSED (drag partition off: fsr is aerodynamic, not aeolian -- would zero 99% of cells)",
+    "vegetation": "ERA5 LAI",
+    "mixing height": "fixed 3000.0 m",
+    "soil texture": "NOT AVAILABLE -- uniform clay=10.0%, u*t_dry=0.3 m/s"
+  },
+  "args": {
+    "models": [
+      "M2_SRC",
+      "M1_AIDUST",
+      "M5_SRC+emission",
+      "M16_SRC+futuremet",
+      "M24b_MIX-CORE",
+      "M24_MIX-LITE",
+      "M23_FLUXGAT",
+      "M25_MIX-FULL"
+    ],
+    "groups": null,
+    "core": false,
+    "epochs": 8,
+    "lr": 0.001,
+    "batch_full": 16,
+    "batch_patch": 256,
+    "node_budget": 2000000,
+    "eval_stride": 4,
+    "rollout_steps": 80,
+    "rollout_starts": 48,
+    "seed": 0,
+    "device": "cuda",
+    "out": "results/aidust_rollout.json",
+    "verbose": false,
+    "smoke": false
+  }
+}

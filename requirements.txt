@@ -9,5 +9,4 @@ pyyaml
 netcdf4
 scikit-learn
 cartopy
-pennylane>=0.42
 jupyter

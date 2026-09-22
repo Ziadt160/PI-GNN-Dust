@@ -1,144 +1,184 @@
 # Physics-Informed Graph Neural Network (PI-GNN) for Atmospheric Dust Forecasting
 
 ![PI-GNN Architecture](results/pi_gnn_architecture.png)
-*Professional scientific diagram of the Physics-Informed Graph Neural Network (PI-GNN) architecture for atmospheric forecasting.*
+*Physics-Informed Graph Neural Network (PI-GNN) architecture for atmospheric dust transport.*
 
 ## Project Overview
-This repository implements and evaluates a sequence of machine learning models designed to forecast atmospheric PM10 dust concentrations. The core problem addressed is the accurate prediction of dust transport dynamics while respecting the underlying physical laws of atmospheric science, specifically the advection–diffusion equation.
+This repository implements a Physics-Informed Graph Neural Network that forecasts
+PM10 dust concentration over a small lat/lon grid in the Arabian Gulf region. The
+grid is treated as a mesh of interacting control volumes, and transport is
+regularised toward the **advection equation** `dC/dt + u·∇C = 0`.
+
+On a strictly held-out test year, the model achieves **R² ≈ 0.57** and reduces error
+by **~10% over a strong persistence baseline** — a genuine, seed-stable improvement
+(the baseline persistence model already explains ~53% of variance, so this is real
+forecast skill, not autocorrelation). All numbers below are produced by the scripts
+in this repo and reported honestly.
+
+> **Note on prior results.** Earlier versions of this README reported metrics
+> (e.g. persistence MSE 1.22, model MSE 0.74 / R² 0.26) that were inconsistent with
+> the data — a model MSE above the target variance (0.68) cannot have a positive R².
+> Those numbers were never produced by this pipeline and have been replaced by the
+> measured values below.
 
 ---
 
-## Model Evolution
+## Model
 
-Our research followed an iterative process, moving from high-capacity hybrid models to physically grounded structural models.
+### Architecture
+- **Graph construction** — each grid cell is a node connected to its 8 neighbours
+  (N/S/E/W + diagonals, so winds at ~45° are representable in one hop). Node
+  positions use a geographically-oriented frame (`+east`, `+north`) so wind
+  projections carry the correct sign.
+- **PhysicsFluxLayer (×2 hops)** — message passing where each message combines the
+  (standardised) node features with an explicit **upwind advection term**
+  `(u·n̂_{j→i})·(C_j − C_i)` from the *physical* source-cell wind and the
+  concentration gradient along the edge. Two stacked layers (with residual
+  connections) widen the spatial receptive field.
+- **Residual head** — predicts `Δ(log PM10)`; the next state is `C_{t+1} = C_t + Δ`.
+  The head is zero-initialised, so training starts from persistence and learns
+  corrections. (No `Softplus`: the `log1p` target is already ≥0, and a Softplus
+  would impose a spurious ln(2)≈0.69 floor on low concentrations.)
+- **Inputs** — node features carry the current frame `[log_pm10, u10, v10, t2m]`,
+  a **temporal history window** (previous frames, so the model perceives the
+  tendency `dC/dt`), the **10 m wind speed**, and a **day-of-year (sin/cos)** season
+  encoding. All features are standardised using statistics **fitted on the training
+  split only** (stored as model buffers) — no leakage across splits.
 
-### Phase 1: Spatio-Temporal Transformer-Quantum
+### Physics-informed loss
+Two terms balanced by **homoscedastic uncertainty weighting** (Kendall et al., 2018):
+1. **Data loss** — `MSE(Ĉ_{t+1}, C_{t+1})` in log space.
+2. **Physics residual** — discretised advection residual
+   `‖(C_{t+1} − C_t) + (u·∇C_t)·Δt‖²`, using correct grid spacing
+   (`dy ≈ 83.5 km`, `dx ≈ 74.9 km` at 26°N) and the correct latitude orientation
+   (latitude decreases with row index, so the row-axis derivative is negated).
 
-**Modeling Decision: Capturing Temporal Context**  
-Our initial hypothesis was that dust dynamics are primarily a time-series problem where long-range dependencies are key. We chose a Transformer-based architecture to avoid the vanishing gradient problems of traditional RNNs while using a Variational Quantum Circuit (VQC) to modulate global features.
-
-*   **Architecture Detail**: This model utilizes a vision-inspired approach where 2D spatial grids are flattened into a token sequence per time step. The temporal dimension is handled by a standard Transformer Encoder block with multi-head attention.
-*   **Components**: 
-    - **Linear Projection**: Maps grid tokens to a latent space ($d_{model}=32$).
-    - **Transformer Encoder**: 2-layer encoder with 2-head self-attention.
-    - **Quantum Integration**: Features encoded into a 4-qubit system using `AngleEmbedding` and processed by `StronglyEntanglingLayers`.
-
-![Architecture of Phase 1](results/transformer_quantum_architecture.png)
-*Architecture of Phase 1: Spatio-Temporal Transformer-Quantum Hybrid.*
-
-*   **Experimental Results**:
-    - **MSE**: ~0.750
-    - **R² Score**: ~0.250
-*   **Insights Gained**: 
-    The Transformer is excellent at capturing the "spike" in dust concentration following a wind event. However, by flattening the grid, we lost the **spatial topography**, forcing the model to inefficiently "re-learn" pixel adjacency.
-
----
-
-### Phase 2: Hybrid CNN-VQC
-
-**Modeling Decision: Enforcing Spatial Translation Invariance**  
-To solve the "topological blindness" of Phase 1, we transitioned to a convolutional approach. The rationale was that atmospheric patterns (blobs of dust) have a consistent spatial structure that a CNN can extract more efficiently than a flattened Transformer.
-
-*   **Mechanism**: Transitioned from a sequential view of the grid to a convolutional (spatial) view using a 2D-CNN backbone.
-*   **New Modules**:
-    - **CNN Encoder**: 2 convolutional layers (32 $\to$ 16 filters) with 3x3 kernels and Max-Pooling.
-    - **Global Average Pooling**: Reduces the spatial feature map to a fixed 16-dimensional vector.
-    - **Quantum Latent Map**: The VQC (4 qubits) acts as a high-dimensional kernel transformer.
-
-![Architecture of Phase 2](results/cnn_vqc_architecture.png)
-*Architecture of Phase 2: Hybrid Convolutional-Quantum Variational Circuit.*
-
-*   **Experimental Results**:
-    - **MSE**: 0.7553
-    - **R² Score**: 0.2482
-*   **Insights Gained**: 
-    Convolutions stabilized the spatial predictions significantly, producing realistic "cloud" shapes. However, the model remained **Physically Blind**—it did not know that dust information should flow strictly *with* the wind vector.
+Mass conservation is **not** a training penalty (an open domain exchanges mass via
+boundary flux) but is reported as a diagnostic.
 
 ---
 
-### Phase 3: Physics-Informed Graph Neural Network (PI-GNN)
+## Results
 
-**Modeling Decision: Integrating Structural Fluid Dynamics**  
-We realized that neither attention nor convolutions can replace the governing equations of physics. We pivoted to a GNN to treat the grid as a mesh of interacting control volumes where transport is governed by the Advection-Diffusion equation.
+**Evaluation protocol — strict 3-way temporal split, no leakage:**
 
-*   **Architecture Improvements**: Moves away from regular grids to a **Graph-based representation** of the atmospheric mesh where edges strictly represent physical boundaries.
-*   **Key Components**:
-    - **Graph Construction**: Each grid cell is a node connected to immediate neighbors (N, S, E, W).
-    - **PhysicsFluxLayer**: Implements custom message-passing where message weight is derived from the **wind projection** along the edge, effectively simulating physical flux.
-    - **Physics-Informed Loss**: Integrates a residual loss based on the Advection equation ($L = dC/dt + u\cdot\nabla C$).
-    - **Scientific Constraints**: Implements a `Softplus` activation on the final output to ensure strictly non-negative PM10 concentrations.
-    - **Loss Balancing**: Uses **Homoscedastic Uncertainty Weighting** to automatically learn the optimal balance between supervised data loss and physics residual loss.
+| Split | Years | Role |
+| :--- | :--- | :--- |
+| Train | 2003–2005 | parameter fitting + normalisation statistics |
+| Validation | 2006 | model selection / checkpointing (on MSE) |
+| **Test** | **2007** | held-out final evaluation (never used for selection) |
 
-![PhysicsFluxLayer message-passing](results/pi_gnn_architecture.png)
-*PhysicsFluxLayer implementation for wind-projected message passing and physical constraints.*
+**Held-out test (2007), 12 h forecast, log-space:**
 
-*   **Experimental Results**:
-    - **MSE**: **0.7410** (Competitive performance with significantly higher stability).
-    - **Mass Conservation Error**: < 1.5% (A 10x improvement over previous phases).
-*   **Insights Gained**: 
-    Embedding physics directly into the "Flux" of the messages allows for superior generalization to unseen wind conditions and provides **Scientific Interpretability** through edge-flux visualization.
+| Metric | Persistence Baseline | **PI-GNN** |
+| :--- | :---: | :---: |
+| MSE | 0.3205 | **0.2842** |
+| RMSE | 0.5661 | **0.5331** |
+| MAE | 0.4175 | **0.3961** |
+| R² | 0.5265 | **0.5802** |
 
----
+- **Skill vs persistence:** +11.3% MSE for the shipped checkpoint; **+9.9% ± 1.2%**
+  averaged over 3 seeds (R² 0.573 ± 0.006) — i.e. the gain is well outside seed noise.
+- **Wind sensitivity:** flipping the wind field changes the predicted increment
+  (corr ≈ −0.49), confirming the model uses the meteorology.
+- **Mass-conservation diagnostic:** ≈ 0.6% (log) / ≈ 4.3% (physical) domain-mean error.
+- **Autoregressive rollout** (6 steps / 72 h, true forcing): stable, no blow-up.
+- **Inference latency:** ≈ 1 ms per forecast step (CPU).
 
-## Experimental Results
+### What drives the performance (ablation, test 2007, 3 seeds)
 
-The models were evaluated on the Year 2007 validation set using meteorological data from 2003–2006 for training.
+| Configuration | Test R² | Skill vs persistence |
+| :--- | :---: | :---: |
+| Baseline (single frame, 1-hop, 4-neighbour) | 0.530 | +0.5% *(within noise)* |
+| **+ history window, wind speed, season, 2-hop, 8-neighbour** | **0.573** | **+9.9%** |
+| ↳ same model at **6-hourly** resolution | **0.713** | **+20.6%** |
 
-| Metric | Persistence Baseline | Transformer-Quantum | CNN-VQC | PI-GNN |
-| :--- | :---: | :---: | :---: | :---: |
-| **MSE** (Mean Squared Error) | 1.2182 | ~0.7500 | 0.7553 | **0.7410** |
-| **RMSE** (Root Mean Sq Error) | 1.1037 | ~0.8660 | 0.8691 | **0.8608** |
-| **R² Score** | 0.00 | ~0.25 | 0.2482 | **0.2610** |
+Reproduce with `python experiments/ablation.py`. The dominant levers are giving the
+model **temporal context** (so it learns the tendency rather than copying the last
+frame) and, if a shorter horizon is acceptable, **finer temporal resolution** (the
+advection physics is only numerically valid when the CFL number is ≲ 1, which holds
+at 6 h but not 12 h).
+
+### Validation against classical baselines (test 2007, same features)
+
+To check whether the graph + physics machinery is justified, every method is
+evaluated on the identical test set, target, and node features
+(`python experiments/classical_baselines.py`):
+
+| Method | MSE | R² | Skill vs persistence |
+| :--- | :---: | :---: | :---: |
+| Gradient Boosting (no graph) | **0.2421** | **0.642** | **+24.4%** |
+| Random Forest (no graph) | 0.2425 | 0.642 | +24.3% |
+| Ridge linear (no graph) | 0.2613 | 0.614 | +18.5% |
+| **PI-GNN (graph + physics)** | 0.2842 | 0.580 | +11.3% |
+| Persistence | 0.3205 | 0.527 | 0.0% |
+| Climatology (monthly) | 0.3648 | 0.461 | −13.8% |
+| Persistence-of-tendency | 0.7987 | −0.18 | −149% |
+
+**Honest interpretation.** The PI-GNN is *learning* — it clearly beats persistence,
+climatology, and naive tendency. **But it does not beat classical tabular models** on
+this task: gradient boosting, random forest, and even plain linear regression score
+higher using the same features with no graph and no physics. Because the GNN has
+strictly more information (edges + advection prior) yet underperforms, the signal here
+is predominantly **local/per-cell** at a 12 h horizon, and the physics residual likely
+regularises the model away from the best data fit. For this problem as framed, a
+**gradient-boosted tree is the stronger and simpler model**; the PI-GNN's value is in
+physical interpretability (wind-projected flux) rather than raw accuracy.
 
 ### Visual Results
-
-| Training Convergence | Spatial Forecast Comparison |
+| Training Convergence | PM10 Time Series |
 | :---: | :---: |
-| ![Loss Curves](results/training_loss.png) | ![Prediction Map](results/cnn_evaluation.png) |
-| *Evolution of supervised and physics loss over epochs.* | *Ground truth vs. Model prediction (Phase 2 reference).* |
-
-### Time Series Performance
-![PM10 Time Series](results/pm10_timeseries.png)
-*Detailed 12-hour PM10 trajectory analysis capturing episodic dust events.*
+| ![Loss Curves](results/training_loss.png) | ![PM10 Time Series](results/pm10_timeseries.png) |
+| *Weighted train/val loss and validation MSE over epochs.* | *12-hour PM10 trajectory capturing episodic dust events.* |
 
 ---
 
-## Model Comparison
-
-| Model | Architecture Changes | Key Components | Observed Results |
-| :--- | :--- | :--- | :--- |
-| **Baseline** | N/A | Identity prediction | Zero explained variance (R²=0) |
-| **Transformer-Quantum** | Tokenized Sequence | Multi-head Attention + VQC | Strong temporal trend capture |
-| **CNN-VQC** | 2D Convolutions | CNN Layers + VQC | Better spatial pattern recognition |
-| **PI-GNN** | Graph-based Flux | MessagePassing + Physics Loss | **Physics-consistent transport** |
-
----
-
-## Data Acquisition
-
-The project includes a robust pipeline for fetching meteorological and atmospheric data from ECMWF (ERA5/CAMS).
-
-1.  **Environment Setup**: Ensure you have an API key configured for the CDS (Climate Data Store).
-2.  **Full Download**: Run `python experiments/download_full_data.py` to fetch the primary dataset.
-3.  **Resilient Download**: For large requests or unstable connections, use `python experiments/download_chunked.py` which handles monthly partitioning and retries.
-4.  **Verification**: Use `python experiments/verify_env.py` to ensure all dependencies and data paths are correctly configured.
+## How to improve further
+Ordered by expected impact (see commit history / ablation for what is already done):
+1. **Use all available years.** The CAMS target spans 2003–2024, but only 2003–2007
+   ERA5 is present — training on 3 years. Downloading ERA5 2008–2024 (the download
+   script is already configured for it) gives ~6× the data and many more dust events.
+2. **Add dust-emission predictors** to the CDS request: 10 m wind gust, volumetric
+   soil moisture, boundary-layer height, total precipitation, MSLP, and (from CAMS)
+   dust AOD / emission flux.
+3. **Forecast at 6 h** instead of 12 h if the use case allows (R² 0.53 → 0.71 here).
 
 ---
 
-## Dataset Details
-- **Source**: ERA5 Reanalysis (Meteorological Features) & CAMS Reanalysis (PM10 Target).
-- **Spatial Resolution**: 0.75° x 0.75° grid (7x12 region).
-- **Temporal Resolution**: 12-hour intervals.
-- **Preprocessing**: Target PM10 values are **log-transformed** ($\log(1+x)$) to stabilize variance.
-- **Feature Engineering**: Includes cyclic encoding (Sine/Cosine) for temporal features (Hour/Month).
-- **Time Period**: 2003–2006 training, 2007 validation.
-- **Variables**: PM10 dust concentration, U10/V10 wind components, 2m Temperature (T2M).
+## Dataset
+- **Source:** ERA5 reanalysis (meteorology) + CAMS reanalysis (PM10 target).
+- **Region / grid:** 7 × 12 cells at 0.75° (≈24–28.5°N, 47–55.25°E).
+- **Temporal resolution:** raw data is 3-hourly; resampled to the configured cadence
+  (default 12 h mean).
+- **Target preprocessing:** PM10 scaled kg/m³ → µg/m³ (×1e9) then `log1p`
+  (target mean ≈ 4.07, variance ≈ 0.68 in log space).
+- **Variables:** PM10 (target), `u10`/`v10`, `t2m`; engineered features add temporal
+  history, wind speed, and day-of-year seasonality.
+
+### Data Acquisition (ECMWF / CDS API)
+1. Configure a CDS API key.
+2. `python experiments/download_full_data.py` — primary dataset.
+3. `python experiments/download_chunked.py` — resilient monthly-partitioned download.
+4. `python experiments/verify_env.py` — validate dependencies and data presence.
 
 ---
-### Computational Cost
-- **Hardware used**: NVIDIA T4 GPU (Google Colab Environment).
-- **Training time**: ~1.5 GPU hours for total model selection (30+ epochs per phase).
-- **Inference speed**: **~42.50 ms** per forecast step (Production Ready).
+
+## Reproducibility
+
+Run everything from the repository root.
+
+```bash
+pip install -r requirements.txt
+python experiments/verify_env.py     # check env + data
+python experiments/train_model.py    # train (3-way split, seeded)
+python experiments/benchmark.py       # evaluate on held-out 2007 test set
+python experiments/ablation.py        # reproduce the configuration comparison
+```
+
+Configuration (paths, split years, model size, features, physics constants) lives in
+`configs/default_config.yaml`; paths resolve relative to the repo root. A fixed seed
+makes runs reproducible. Artifacts: `results/best_pi_gnn.pth` (checkpoint),
+`results/feature_stats.json` (train-fit normalisation), `results/benchmark_summary.json`.
 
 ---
 
@@ -146,38 +186,24 @@ The project includes a robust pipeline for fetching meteorological and atmospher
 
 ```
 repo/
-├── README.md               # Scientific audit and documentation
-├── requirements.txt        # Dependencies
-├── configs/                # Hyperparameter and path configurations
-├── src/                    # Core library (PI-GNN implementation)
-│    ├── models/            # Model architectures
-│    ├── layers/            # Custom PhysicsFluxLayer
-│    ├── physics/           # Advection-diffusion loss functions
-│    ├── training/          # Dataset and Training loops
-│    └── utils/             # Graph construction utilities
-├── experiments/            # Research scripts
-│    ├── legacy_models/     # Phase 1 & 2 historical architectures
-│    ├── train_model.py     # Main PI-GNN training entry point
-│    ├── benchmark.py       # Production evaluation suite
-│    ├── download_full_data.py # Data acquisition script
-│    ├── download_chunked.py   # Resilient partitioned downloader
-│    ├── debug_loss.py      # Physics loss visualization utility
-│    ├── inspect_data.py    # NC file inspector
-│    └── verify_env.py      # Environment setup validator
-├── notebooks/              # Jupyter notebooks for data exploration
-├── results/                # Visualizations, diagrams, and logs
-└── diagrams/               # Detailed architecture documentation
+├── README.md                 # This document
+├── requirements.txt          # Dependencies
+├── configs/default_config.yaml
+├── src/                      # Core PI-GNN library
+│    ├── models/pi_gnn.py     # PIDustModel (multi-hop, residual head, norm buffers)
+│    ├── layers/flux.py       # PhysicsFluxLayer (wind-projected message passing)
+│    ├── physics/loss.py      # Advection residual + mass-conservation diagnostic
+│    ├── training/dataset.py  # GraphDustDataset (history/features) + train-only stats
+│    ├── training/trainer.py  # Homoscedastic-weighted training loop
+│    └── utils/graph.py       # Grid → graph (4/8-neighbour, geo-oriented positions)
+├── experiments/
+│    ├── train_model.py       # Training entry point (3-way split, seeded)
+│    ├── benchmark.py         # Held-out evaluation suite
+│    ├── ablation.py          # Configuration comparison (baseline vs enhanced vs 6 h)
+│    ├── debug_loss.py        # Physics-residual inspection utility
+│    ├── verify_env.py        # Environment + data validator
+│    └── download_*.py        # CDS/ERA5 data acquisition
+├── notebooks/                # Data exploration
+├── results/                  # Checkpoint, stats, figures, benchmark summary
+└── diagrams/architecture.md  # Detailed architecture / equations
 ```
-
-## Reproducibility
-The experiments can be reproduced as follows:
-
-1.  **Environment Setup**:
-    ```bash
-    pip install -r requirements.txt
-    ```
-    *Note: `pennylane` is required specifically for the Quantum components used in Phase 1 & 2.*
-2.  **Configuration**: Adjust data paths in `configs/default_config.yaml`.
-3.  **Training**: Run `python experiments/train_model.py` to train the final PI-GNN model.
-4.  **Evaluation**: Use `python experiments/benchmark.py` to compare against baselines.
-5.  **Legacy Review**: Historical pipelines for Transformer and CNN-VQC are available in `experiments/legacy_models/`.
