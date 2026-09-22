@@ -32,6 +32,7 @@ import xarray as xr
 from torch_geometric.data import Data
 
 from src.physics import emission as emis
+from src.physics import stability as stab
 from src.physics import transport as trans
 
 MERGED_DEFAULT = r"D:/Quantum Projects/DustProject/data/ALL DATA SAUDI/saudi_merged.nc"
@@ -63,6 +64,11 @@ class DataConfig:
     reference_mode: str = "euler"    # "euler" (AI-DUST, faithful) | "semilag" (CFL-stable)
     drag_partition: bool = False     # see src.physics.emission.compute_emission
     erodibility_path: str = r"D:/Quantum Projects/DustProject/data/ALL DATA SAUDI/erodibility.nc"
+    # Boundary-layer stability from ERA5 pressure levels (see src.physics.stability).
+    # Off by default so every result predating the levels download stays reproducible;
+    # `experiments/ablation_levels.py` is what turns it on and measures the difference.
+    pressure_levels: bool = False
+    levels_dir: str = r"D:/Quantum Projects/DustProject/data/ALL DATA SAUDI/levels"
     # Minimum share of the record the dynamic ERA5 drivers must cover before they
     # are used at all. A partial download is ignored rather than edge-padded,
     # which would silently present one year's values as two decades of drivers.
@@ -195,6 +201,67 @@ class SaudiFields:
         return drivers
 
     # ------------------------------------------------------------------ #
+    def _load_levels(self):
+        """Stability diagnostics from ERA5 pressure levels, or nothing.
+
+        Same contract as the emission drivers: a partial download is REFUSED
+        rather than padded.  Holding levels for only the recent years would mean
+        training on one feature set and testing on another, which is exactly the
+        distribution shift `min_driver_coverage` exists to prevent -- and here it
+        would be worse, because the affected channels are the ones we are adding
+        the whole feature block to measure.
+
+        Sets ``self.levels`` to ``[T, C, n_nodes]`` or leaves it ``None``.
+        """
+        self.levels = None
+        self.level_channels = ()
+        self.level_coverage = 0.0
+        if not self.cfg.pressure_levels:
+            return
+        if not os.path.isdir(self.cfg.levels_dir):
+            self._log(f"  NOTE: pressure levels requested but {self.cfg.levels_dir} "
+                      f"does not exist -- run experiments/download_era5_levels.py. "
+                      f"Continuing WITHOUT the stability block.")
+            return
+
+        files = sorted(f for f in os.listdir(self.cfg.levels_dir)
+                       if f.startswith("era5_lev_") and f.endswith(".nc"))
+        if not files:
+            self._log("  NOTE: no era5_lev_*.nc found (parts may still be "
+                      "downloading) -- continuing WITHOUT the stability block.")
+            return
+
+        parts = [xr.open_dataset(os.path.join(self.cfg.levels_dir, f)) for f in files]
+        try:
+            lev = xr.concat(parts, dim="valid_time").sortby("valid_time")
+            factor = CADENCE_FACTOR[self.cfg.cadence]
+            n_trim = ((min(len(lev.valid_time), self.n_steps * factor)) // factor) * factor
+            self.level_coverage = n_trim / factor / self.n_steps
+            if self.level_coverage < self.cfg.min_driver_coverage:
+                self._log(
+                    f"  NOTE: pressure levels cover only "
+                    f"{self.level_coverage*100:.1f}% of the record "
+                    f"({len(files)} year file(s)); below the "
+                    f"{self.cfg.min_driver_coverage*100:.0f}% threshold, so the "
+                    f"stability block is IGNORED. Re-run once the download "
+                    f"completes -- partial levels would train and test on "
+                    f"different feature sets.")
+                return
+            stacked = stab.derive(lev.isel(valid_time=slice(0, n_trim)))
+            # [T, C, H, W] -> block-mean the time axis -> gather to nodes per channel.
+            chans = [self._gather(self._block_mean(stacked[:, c], n_trim, factor)
+                                  )[:self.n_steps]
+                     for c in range(stacked.shape[1])]
+            self.levels = np.stack(chans, axis=1).astype("float32")
+            self.level_channels = stab.CHANNEL_NAMES
+            self._log(f"  pressure levels: {len(stab.CHANNEL_NAMES)} stability "
+                      f"channels from {len(files)} year file(s), coverage "
+                      f"{self.level_coverage*100:.1f}%")
+        finally:
+            for p in parts:
+                p.close()
+
+    # ------------------------------------------------------------------ #
     def _derive(self, raw):
         cfg = self.cfg
         pm10_phys = raw["pm10"] * 1e9                     # kg/m^3 -> ug/m^3
@@ -282,6 +349,9 @@ class SaudiFields:
         self.dsin = np.sin(2 * np.pi * doy / 365.25).astype("float32")
         self.dcos = np.cos(2 * np.pi * doy / 365.25).astype("float32")
         self.years = self.times.astype("datetime64[Y]").astype(int) + 1970
+
+        # Last, because it gathers to nodes and so needs node_flat and n_steps.
+        self._load_levels()
 
         self._log(f"  cached {self.n_steps} steps x {self.n_nodes} nodes")
 

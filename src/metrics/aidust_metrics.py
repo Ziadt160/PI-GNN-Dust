@@ -50,32 +50,72 @@ def _pearson(a, b, axis):
 TS_THRESHOLDS = (100.0, 200.0, 500.0, 1000.0)
 
 
-def threat_score(pred, obs, threshold=DUST_THRESHOLD):
-    """Categorical verification at one concentration threshold.
+def extremal_dependence(hit_rate, false_alarm_rate, symmetric=True):
+    """EDI / SEDI -- the rare-event scores that do not depend on the base rate.
 
-    ``TS = NC / (NF + NO + NC)`` is AI-DUST Eq. 5 (a.k.a. critical success index):
-    NC hits, NF false alarms, NO misses, correct negatives deliberately excluded.
+    Ferro & Stephenson (2011), Wea. Forecasting 26, 699-713.  Both are functions
+    of ``H`` (hit rate = POD) and ``F`` (false-alarm RATE) alone, so unlike TS,
+    ETS and HSS they do not shrink simply because the event is rare::
 
-    TS is **not equitable** -- it credits hits that would occur by chance.  ETS and
-    HSS remove that credit.
+        EDI  = (ln F - ln H) / (ln F + ln H)
+        SEDI = [ln F - ln H - ln(1-F) + ln(1-H)] / [ln F + ln H + ln(1-F) + ln(1-H)]
 
-    Measured here, that correction turns out to be small: at this domain's 8.5%
-    event base rate, chance hits are only ~9% of actual hits, so ETS sits within
-    ~0.02 of TS for every model.  ETS corrects for **luck**, and luck is not what
-    inflates scores on this dataset -- **persistence** is (holding the last frame
-    scores TS 0.586).  Use :func:`add_skill_scores` for that; ETS will not show it.
+    Range -1..1, 0 = no skill.  SEDI is the symmetric form: it is unchanged when
+    events and non-events swap roles, and is harder to hedge by over-forecasting.
 
-        ETS = (NC - NC_random) / (NC + NO + NF - NC_random),  NC_random = (NC+NF)(NC+NO)/N
-              range -1/3..1, 0 = no skill beyond chance          (Gilbert skill score)
-        HSS = 2(NC*CN - NF*NO) / [(NC+NO)(NO+CN) + (NC+NF)(NF+CN)]
-              range -1..1, 0 = no skill beyond chance            (Heidke skill score)
+    **Why this matters here.**  Our three visibility grades differ in base rate by
+    a factor of ~35 (``dusty`` ~7%, ``dust_storm`` ~1%, ``severe`` ~0.2%).  TS
+    falls across that range even for a forecast of constant quality, which is
+    exactly what makes our ``severe`` TS of 0.000 uninformative and our
+    ``dust_storm`` TS look far worse than the published numbers it was set beside.
+    SEDI is the score that survives the comparison.
+
+    Undefined at the boundaries: ``H`` or ``F`` equal to 0 or 1 sends a logarithm
+    to infinity.  We return NaN rather than clipping, because a clipped value is a
+    number the caller cannot distinguish from a measurement.  ``F`` reaching 0 is
+    common at tiny base rates when the forecast never fires; that is not skill, it
+    is an empty contingency table, and NaN says so.
+
+    Note ``F`` is the false-alarm RATE ``NF / (NF + CN)``, not the false-alarm
+    RATIO ``FAR = NF / (NC + NF)`` reported elsewhere in this module.  The two are
+    routinely confused and are not interchangeable.
     """
-    pred_evt = np.asarray(pred) >= threshold
-    obs_evt = np.asarray(obs) >= threshold
-    nc = int(np.sum(pred_evt & obs_evt))
-    nf = int(np.sum(pred_evt & ~obs_evt))
-    no = int(np.sum(~pred_evt & obs_evt))
-    cn = int(pred_evt.size - nc - nf - no)
+    h = float(hit_rate)
+    f = float(false_alarm_rate)
+    if not (0.0 < h < 1.0) or not (0.0 < f < 1.0):
+        return np.nan
+    lh, lf = np.log(h), np.log(f)
+    if not symmetric:
+        den = lf + lh
+        return (lf - lh) / den if den != 0 else np.nan
+    l1h, l1f = np.log1p(-h), np.log1p(-f)
+    den = lf + lh + l1f + l1h
+    return (lf - lh - l1f + l1h) / den if den != 0 else np.nan
+
+
+def contingency_scores(nc, nf, no, cn):
+    """Every categorical score this repo reports, from one 2x2 table.
+
+    ``nc`` hits, ``nf`` false alarms, ``no`` misses, ``cn`` correct negatives.
+    Kept as the single implementation so the benchmark and the station trainer
+    cannot drift apart.
+
+        TS   = NC / (NC + NF + NO)                             (AI-DUST Eq. 5, CSI)
+        ETS  = (NC - NC_rand) / (NC + NO + NF - NC_rand),  NC_rand = (NC+NF)(NC+NO)/N
+               range -1/3..1, 0 = no skill beyond chance       (Gilbert)
+        HSS  = 2(NC*CN - NF*NO) / [(NC+NO)(NO+CN) + (NC+NF)(NF+CN)]
+               range -1..1, 0 = no skill beyond chance         (Heidke)
+        SEDI see :func:`extremal_dependence` -- the only one here that is
+             base-rate independent, and the only one to quote across thresholds
+
+    TS is **not equitable** -- it credits hits that would occur by chance.  On the
+    CAMS-target benchmark that correction was small (at an 8.5% base rate chance
+    hits are ~9% of actual hits, so ETS sat within ~0.02 of TS for every model),
+    which is why ETS was described here as near-redundant.  That conclusion does
+    **not** carry to the station target: at a 0.2% base rate the base-rate
+    dependence of TS itself dominates, and SEDI is the score to use.
+    """
+    nc, nf, no, cn = int(nc), int(nf), int(no), int(cn)
     n = nc + nf + no + cn
     denom = nc + nf + no
 
@@ -83,16 +123,37 @@ def threat_score(pred, obs, threshold=DUST_THRESHOLD):
     ets_den = denom - nc_rand
     hss_den = ((nc + no) * (no + cn) + (nc + nf) * (nf + cn))
 
+    pod = (nc / (nc + no)) if (nc + no) > 0 else np.nan          # hit rate H
+    f_rate = (nf / (nf + cn)) if (nf + cn) > 0 else np.nan       # false-alarm rate F
+
     return {
         "TS": (nc / denom) if denom > 0 else np.nan,
         "ETS": ((nc - nc_rand) / ets_den) if ets_den > 0 else np.nan,
         "HSS": (2.0 * (nc * cn - nf * no) / hss_den) if hss_den > 0 else np.nan,
-        "POD": (nc / (nc + no)) if (nc + no) > 0 else np.nan,      # hit rate
+        "SEDI": extremal_dependence(pod, f_rate, symmetric=True),
+        "EDI": extremal_dependence(pod, f_rate, symmetric=False),
+        "POD": pod,                                                # hit rate
         "FAR": (nf / (nc + nf)) if (nc + nf) > 0 else np.nan,      # false-alarm ratio
-        "BIAS_freq": ((nc + nf) / (nc + no)) if (nc + no) > 0 else np.nan,  # frequency bias
+        "F_rate": f_rate,                                          # false-alarm rate
+        "BIAS_freq": ((nc + nf) / (nc + no)) if (nc + no) > 0 else np.nan,
         "hits": nc, "false_alarms": nf, "misses": no, "correct_negatives": cn,
+        "n": n,
         "events_observed": nc + no, "base_rate": (nc + no) / n if n else np.nan,
     }
+
+
+def threat_score(pred, obs, threshold=DUST_THRESHOLD):
+    """Categorical verification at one concentration threshold.
+
+    Thin wrapper: thresholds both fields, then :func:`contingency_scores`.
+    """
+    pred_evt = np.asarray(pred) >= threshold
+    obs_evt = np.asarray(obs) >= threshold
+    nc = int(np.sum(pred_evt & obs_evt))
+    nf = int(np.sum(pred_evt & ~obs_evt))
+    no = int(np.sum(~pred_evt & obs_evt))
+    cn = int(pred_evt.size - nc - nf - no)
+    return contingency_scores(nc, nf, no, cn)
 
 
 def fractional_error(pred, obs):
@@ -116,11 +177,16 @@ def fractional_error(pred, obs):
 
 
 def multi_threshold_scores(pred, obs, thresholds=TS_THRESHOLDS):
-    """TS / ETS / POD / FAR at several thresholds, as SDS-WAS reports them.
+    """TS / ETS / SEDI / POD / FAR at several thresholds, as SDS-WAS reports them.
 
     A single 200 ug/m^3 cut hides where a model actually works: a model can look
     competent on moderate dust and be useless on severe events, which are the ones
     an early-warning system exists for.
+
+    Read the SEDI row, not the TS row, when comparing ACROSS thresholds: the base
+    rate falls by orders of magnitude from the lowest cut to the highest, and TS
+    falls with it whether or not the forecast got worse.  Compare TS only within
+    one threshold, against another model or another lead time.
     """
     out = {}
     for thr in thresholds:
@@ -128,9 +194,11 @@ def multi_threshold_scores(pred, obs, thresholds=TS_THRESHOLDS):
         tag = int(thr)
         out[f"TS@{tag}"] = s["TS"]
         out[f"ETS@{tag}"] = s["ETS"]
+        out[f"SEDI@{tag}"] = s["SEDI"]
         out[f"POD@{tag}"] = s["POD"]
         out[f"FAR@{tag}"] = s["FAR"]
         out[f"nobs@{tag}"] = s["events_observed"]
+        out[f"base@{tag}"] = s["base_rate"]
     return out
 
 

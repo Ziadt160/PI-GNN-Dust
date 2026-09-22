@@ -16,3 +16,10 @@ env/
 .openaq_key
 *.key
 .env
+
+# Throwaway run artifacts: smoke tests and ablation arms overwrite these.
+# Real checkpoints are committed deliberately, by name.
+results/smoke_*.json
+results/ablation/
+results/preds/station_*.npz
+results/station_model_*_*h.pt

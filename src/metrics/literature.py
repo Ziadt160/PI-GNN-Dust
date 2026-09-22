@@ -12,9 +12,17 @@ The comparability problem that remains is **base rate**, and it is bigger:
     Sarafian 2023  dust event = PM10 > 65.2 ug/m^3   base rate  13%
     Sarafian 2025  dust event = PM10 > 50   ug/m^3   base rate  22%
     Xu 2026        dust event = visibility <= 10 km  base rate  <8%
-    ours `dusty`   visibility < 5 km                 base rate  ~7%   (1229 events)
-    ours `storm`   visibility < 1 km                 base rate  ~1%   ( 185 events)
-    ours `severe`  visibility < 0.4 km               base rate  ~0.2% (  35 events)
+    ours `dusty`   visibility < 5 km                 base rate  8.09%
+    ours `storm`   visibility < 1 km                 base rate  1.26%
+    ours `severe`  visibility < 0.4 km               base rate  0.23%
+
+Ours are MEASURED, not estimated: daily dust-days at interior stations over the
+2021-2024 test period, printed by `train_station_dust.py` on every scored table
+since the base rate became part of the score set.  They replace the earlier
+"~7% / ~1% / ~0.2%" estimates, which were inferred from event counts without a
+denominator.  Note `dusty` at 8.09% sits in the same band as Xu's <8% and within
+a factor of 1.6 of Sarafian's 13%, so that row is a fair comparison; `severe` at
+0.23% is 57x rarer than Sarafian's event and cannot be set beside it at all.
 
 Every published "dust event" threshold sits at or below our `dusty` grade.  TS,
 POD and FAR are all base-rate dependent, so setting our `dust_storm` TS beside a

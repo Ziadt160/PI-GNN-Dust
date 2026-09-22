@@ -47,8 +47,19 @@ class FeatureAssembler:
             names += ["rel_elev"]
         if cfg.transport_feature:
             names += ["transport"]
+        # Stability block: present only when the levels archive is complete, so a
+        # partial download changes nothing rather than silently changing the
+        # feature set. `has_levels` is the single source of truth for both the
+        # names and the assembly below.
+        if self.has_levels:
+            names += [f"{c}_+1" for c in self.f.level_channels]
         names += ["doy_sin", "doy_cos"]
         return names
+
+    @property
+    def has_levels(self):
+        return bool(self.cfg.pressure_levels
+                    and getattr(self.f, "levels", None) is not None)
 
     @property
     def n_channels(self):
@@ -80,6 +91,12 @@ class FeatureAssembler:
             cols += [f.elev]
         if cfg.transport_feature:
             cols += [f.transport[idx]]
+        if self.has_levels:
+            # At `nxt`, not at `idx`: stability decides whether dust reaching the
+            # station is mixed to eye level, and that is a property of the
+            # atmosphere at the VALID time, not at initialisation. Same reasoning
+            # -- and the same `met_offset` -- as the future-meteorology channels.
+            cols += [f.levels[nxt, c] for c in range(f.levels.shape[1])]
         cols += [np.full(f.n_nodes, f.dsin[idx], "float32"),
                  np.full(f.n_nodes, f.dcos[idx], "float32")]
         return np.stack(cols, axis=1).astype("float32")

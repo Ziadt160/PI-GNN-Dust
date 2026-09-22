@@ -56,10 +56,13 @@ REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, REPO_ROOT)
 
 from src.data.saudi_dataset import DataConfig, SaudiFields        # noqa: E402
-from src.data.station_target import DustTarget                    # noqa: E402
+from src.data.station_target import EVENT_THRESHOLDS, DustTarget  # noqa: E402
 from src.data.topologies import FeatureAssembler                  # noqa: E402
 from src.layers.flux import PhysicsFluxLayer                      # noqa: E402
+from src.metrics.aidust_metrics import contingency_scores         # noqa: E402
 from src.models.dust_transport import DustTransportGNN, hops_for_horizon  # noqa: E402
+from src.models.ordinal import (                                  # noqa: E402
+    SORDLoss, cumulative_probabilities, grades_from_labels, inverse_frequency_weights)
 from src.utils.graph import build_masked_graph                    # noqa: E402
 
 HORIZON_STEPS = {"3h": 1, "24h": 8, "48h": 16}     # at the 3-hourly cadence
@@ -94,16 +97,26 @@ class StationDustModel(nn.Module):
 
 
 def contingency(pred_evt, obs_evt):
+    """Full categorical score set for one threshold.
+
+    Delegates to :func:`src.metrics.aidust_metrics.contingency_scores` so the
+    trainer and the benchmark cannot drift apart -- this used to be a second,
+    slightly different implementation that reported neither SEDI nor the base
+    rate, which is how a TS of 0.135 at a 1% base rate came to be quoted beside
+    published numbers measured at 13%.
+
+    ``events`` is kept as an alias of ``events_observed`` so the JSONs written
+    before this change stay readable by the same code.
+    """
+    pred_evt = np.asarray(pred_evt, dtype=bool)
+    obs_evt = np.asarray(obs_evt, dtype=bool)
     nc = int(np.sum(pred_evt & obs_evt))
     nf = int(np.sum(pred_evt & ~obs_evt))
     no = int(np.sum(~pred_evt & obs_evt))
-    den, n = nc + nf + no, obs_evt.size
-    rand = (nc + nf) * (nc + no) / n if n else 0.0
-    return {"TS": nc / den if den else np.nan,
-            "ETS": (nc - rand) / (den - rand) if (den - rand) > 0 else np.nan,
-            "POD": nc / (nc + no) if (nc + no) else np.nan,
-            "FAR": nf / (nc + nf) if (nc + nf) else np.nan,
-            "events": nc + no}
+    cn = int(pred_evt.size - nc - nf - no)
+    sc = contingency_scores(nc, nf, no, cn)
+    sc["events"] = sc["events_observed"]
+    return sc
 
 
 def main():
@@ -133,6 +146,21 @@ def main():
                          "hops scaled to the forecast horizon, readout at interior "
                          "cells only. The default 2-hop model has a 152 km reach, "
                          "while 24 h transport is 500-700 km")
+    ap.add_argument("--ordinal", action="store_true",
+                    help="predict one ORDINAL severity grade (clear/dusty/storm/"
+                         "severe) with a SORD loss instead of three independent "
+                         "binary heads. The three threshold probabilities come "
+                         "back as tail sums, monotone by construction, so the "
+                         "scores stay comparable. Fixes the `severe` head, which "
+                         "at a 0.070%% base rate never fires and scores TS 0.000")
+    ap.add_argument("--levels", action="store_true",
+                    help="add the ERA5 pressure-level stability block (t_500, "
+                         "t_700-500, Ri(850-700), low-level jet, shear). Every "
+                         "feature this project has used so far is a surface field, "
+                         "yet the one comparable study that publishes a feature "
+                         "ranking finds pressure-level quantities in its top 3 at "
+                         "every horizon. Needs download_era5_levels.py to have "
+                         "finished; a partial archive is refused, not padded")
     ap.add_argument("--upwind-obs", action="store_true",
                     help="reveal observations at ALL stations as input, including "
                          "boundary ones, while still scoring only interior cells. "
@@ -167,10 +195,15 @@ def main():
     device = torch.device(args.device)
     rng = np.random.default_rng(args.seed)
 
+    # Checkpoints and saved predictions are namespaced by the run, so an ablation
+    # arm cannot silently overwrite the arm it is being compared against.
+    run_tag = os.path.splitext(os.path.basename(args.out))[0]
+
     cfg = DataConfig(cadence="3h", window=3, future_met=True, courant=True,
                      relief=True, emission_features=True, transport_feature=True,
                      divergence=True, multitask=True, topology="full", neighbors=8,
-                     min_driver_coverage=args.min_driver_coverage)
+                     min_driver_coverage=args.min_driver_coverage,
+                     pressure_levels=args.levels)
     fields = SaudiFields(cfg, verbose=True)
     asm = FeatureAssembler(fields, cfg)
     edge_index, pos, _ = build_masked_graph(fields.mask, neighbors=cfg.neighbors)
@@ -228,6 +261,12 @@ def main():
             interior_sel = np.arange(len(kept))
     else:
         interior_sel = np.arange(len(kept))
+
+    # Ordinal grade = how many nested thresholds the observation crosses, so
+    # 0 clear / 1 dusty / 2 dust_storm / 3 severe. Derived from the same labels
+    # the binary path uses, which is what keeps the two directly comparable.
+    grades = grades_from_labels(labels, EVENT_THRESHOLDS)
+    n_grades = len(EVENT_THRESHOLDS) + 1
 
     print(f"\nstations in graph: {len(kept)} -> {len(set(node_idx))} distinct cells")
     print("observed base rates:")
@@ -310,6 +349,8 @@ def main():
             return np.concatenate([base, obs], axis=-1)
 
         n_ch = asm.n_channels + n_obs_ch
+        # One softmax over grades, or one sigmoid per threshold.
+        n_out = n_grades if args.ordinal else len(names)
         sub = feats(tr[::max(1, len(tr) // 80)]).reshape(-1, n_ch)
         if args.transport:
             lead_h = step * 3
@@ -317,24 +358,51 @@ def main():
             emis_cols = [i for i, c in enumerate(asm.channels)
                          if c in ("ustar_+1", "log_emission_+1", "emis_tendency_+1",
                                   "speed_+1", "rel_elev")]
-            model = DustTransportGNN(n_ch, len(names), emis_cols, args.hidden,
+            model = DustTransportGNN(n_ch, n_out, emis_cols, args.hidden,
                                      k_hops, args.dropout).to(device)
             print(f"  DustTransportGNN: {k_hops} hops = {k_hops*76} km reach "
                   f"(dust travels ~{5.8*lead_h*3.6:.0f} km at p90 wind over {lead_h} h)",
                   flush=True)
         else:
-            model = StationDustModel(n_ch, len(names), args.hidden,
+            model = StationDustModel(n_ch, n_out, args.hidden,
                                      args.hops, args.dropout).to(device)
         model.set_stats(sub.mean(0), sub.std(0))
 
-        pw = []
-        for k in range(len(names)):
-            lab = labels[:, train_st, k][valid[:, train_st]]
-            r = max(lab.mean(), 1e-6)
-            pw.append(min((1 - r) / r, 200.0))
-        lossfn = nn.BCEWithLogitsLoss(
-            pos_weight=torch.tensor(pw, dtype=torch.float32, device=device),
-            reduction="none")
+        if args.ordinal:
+            gw = inverse_frequency_weights(
+                grades[:, train_st][valid[:, train_st]], n_grades, cap=200.0)
+            sord = SORDLoss(n_grades, class_weight=gw).to(device)
+            print(f"  ordinal head: {n_grades} grades, SORD loss, "
+                  f"class weights {np.round(gw, 2).tolist()}", flush=True)
+
+            def loss_of(out, sel, stations, _step):
+                y = torch.from_numpy(
+                    grades[sel + _step][:, stations]).to(device)
+                m = torch.from_numpy(valid[sel + _step][:, stations]).to(device)
+                return sord(out, y, m), int(m.sum())
+        else:
+            pw = []
+            for k in range(len(names)):
+                lab = labels[:, train_st, k][valid[:, train_st]]
+                r = max(lab.mean(), 1e-6)
+                pw.append(min((1 - r) / r, 200.0))
+            lossfn = nn.BCEWithLogitsLoss(
+                pos_weight=torch.tensor(pw, dtype=torch.float32, device=device),
+                reduction="none")
+
+            def loss_of(out, sel, stations, _step):
+                y = torch.from_numpy(
+                    labels[sel + _step][:, stations].astype("float32")).to(device)
+                m = torch.from_numpy(
+                    valid[sel + _step][:, stations]).to(device).unsqueeze(-1).expand_as(y)
+                return (lossfn(out, y) * m).sum() / m.sum().clamp(min=1), int(m.sum())
+
+        def event_probs(out):
+            """Model output -> P(event) per threshold, in `names` order."""
+            if args.ordinal:
+                return cumulative_probabilities(out, EVENT_THRESHOLDS, names)
+            return torch.sigmoid(out)
+
         opt = torch.optim.Adam(model.parameters(), lr=args.lr)
 
         def run(idxs, stations, train, _step=step):
@@ -353,12 +421,8 @@ def main():
                 ei = (edge_index.unsqueeze(1) + offs).reshape(2, -1)
                 out = model(x.reshape(B * N, C), ei, pos.repeat(B, 1)).view(B, N, -1)
                 out = out[:, node_idx[stations], :]
-                y = torch.from_numpy(
-                    labels[sel + _step][:, stations].astype("float32")).to(device)
-                m = torch.from_numpy(
-                    valid[sel + _step][:, stations]).to(device).unsqueeze(-1).expand_as(y)
-                nlab += int(m.sum())
-                loss = (lossfn(out, y) * m).sum() / m.sum().clamp(min=1)
+                loss, n_valid = loss_of(out, sel, stations, _step)
+                nlab += n_valid
                 if train:
                     opt.zero_grad(); loss.backward()
                     torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0); opt.step()
@@ -388,8 +452,10 @@ def main():
         if state:
             model.load_state_dict(state)
 
-        torch.save({"state": model.state_dict(), "n_ch": n_ch, "names": names},
-                   os.path.join("results", f"station_model_{hname}.pt"))
+        torch.save({"state": model.state_dict(), "n_ch": n_ch, "names": names,
+                    "n_out": n_out, "ordinal": bool(args.ordinal),
+                    "channels": list(asm.channels), "tag": run_tag},
+                   os.path.join("results", f"station_model_{run_tag}_{hname}.pt"))
 
         # Score twice: with the current observation available, and with it fully
         # withheld.  The second is what the model would deliver at the 225 cells
@@ -408,11 +474,24 @@ def main():
                     offs = (torch.arange(B, device=device) * N).view(1, -1, 1)
                     ei = (edge_index.unsqueeze(1) + offs).reshape(2, -1)
                     out = model(x.reshape(B * N, C), ei, pos.repeat(B, 1)).view(B, N, -1)
-                    P.append(torch.sigmoid(out[:, node_idx[eval_st], :]).cpu().numpy())
+                    P.append(event_probs(out[:, node_idx[eval_st], :]).cpu().numpy())
                     Y.append(labels[sel + step][:, eval_st])
                     Mk.append(valid[sel + step][:, eval_st])
             P = np.concatenate(P); Y = np.concatenate(Y).astype(bool)
             Mk = np.concatenate(Mk)[..., None].repeat(len(names), -1)
+
+            # Persist the raw 3-hourly scores before any aggregation, so a
+            # re-score at a different threshold, a different operating point or a
+            # new metric costs seconds instead of a retrain.  Every number in the
+            # results table is recoverable from this file; nothing here is.
+            pred_path = os.path.join("results", "preds",
+                                     f"station_{run_tag}_{hname}_{mode}.npz")
+            os.makedirs(os.path.dirname(pred_path), exist_ok=True)
+            np.savez_compressed(
+                pred_path, prob=P.astype("float32"), obs=Y, valid=Mk,
+                times=fields.times[te + step].astype("datetime64[s]").astype("int64"),
+                thresholds=np.array(names), stations=np.array([kept[i] for i in eval_st]),
+                horizon=hname, mode=mode, daily=bool(args.daily))
 
             if args.daily:
                 # A dust DAY at a station: any storm hour within the calendar day.
@@ -440,15 +519,32 @@ def main():
     print("  obs    = current station visibility available (nowcast-assisted)")
     print("  no-obs = observation withheld: what the 225 station-less cells would get")
     print("           -- this is the column comparable to published forecast scores\n")
-    print(f"{'horizon':<9}{'event':<12}{'mode':<8}{'TS':>8}{'ETS':>8}{'POD':>8}"
-          f"{'FAR':>8}{'events':>9}")
+    def fmt(v, w=8, d=3):
+        return f"{v:>{w}.{d}f}" if isinstance(v, float) and v == v else f"{'--':>{w}}"
+
+    print(f"{'horizon':<9}{'event':<12}{'mode':<8}{'base':>8}{'TS':>8}{'ETS':>8}"
+          f"{'SEDI':>8}{'POD':>8}{'FAR':>8}{'events':>9}")
     for key, sc in results.items():
         parts = key.split("|")
         h, nm, mode = (parts + ["-"])[:3]
-        print(f"{h:<9}{nm:<12}{mode:<8}{sc['TS']:>8.3f}{sc['ETS']:>8.3f}"
-              f"{sc['POD']:>8.3f}{sc['FAR']:>8.3f}{sc['events']:>9,}")
-    print("\nreference: WMO SDS-WAS operational TS 0.31 @24h | AI-DUST TS 0.33 @day1")
-    print("           CAMS-target model TS 0.11 @3h | shared-met station model 0.025 @24h")
+        print(f"{h:<9}{nm:<12}{mode:<8}"
+              f"{sc['base_rate']*100:>7.3f}%{fmt(sc['TS'])}{fmt(sc['ETS'])}"
+              f"{fmt(sc['SEDI'])}{fmt(sc['POD'])}{fmt(sc['FAR'])}{sc['events']:>9,}")
+
+    print("\nRead DOWN the SEDI column, ACROSS the TS column.")
+    print("  TS, ETS, POD and FAR all fall with the base rate whether or not the")
+    print("  forecast got worse, so they compare models at ONE threshold and")
+    print("  nothing else. Verified in experiments/verify_metrics.py: at constant")
+    print("  forecast quality TS drops 11.4x from the `dusty` to the `severe`")
+    print("  grade while SEDI does not move at all.")
+    print("\nreference points, with their base rates, since TS without one is meaningless:")
+    print("  Sarafian 2023 (Israel, 24 h, stations):  TS 0.553 implied, base rate 13%")
+    print("    -- the one genuinely comparable published result; compare at `dusty`")
+    print("  AI-DUST (East Asia, day 1, stations):    TS 0.33,  base rate unstated")
+    print("  WMO SDS-WAS operational:                 TS 0.31 @24h -- UNTRACEABLE,")
+    print("    could not be sourced primarily; Middle East sub-region POD runs")
+    print("    0.19-0.48 against >0.68 over the Sahara, so the regional bar is")
+    print("    probably lower. Do not quote 0.31 without chasing the AEMET report.")
 
     os.makedirs(os.path.dirname(args.out), exist_ok=True)
     with open(args.out, "w") as fh:

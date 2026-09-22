@@ -24,6 +24,7 @@ import torch
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, REPO_ROOT)
 
+from src.physics import stability as S                       # noqa: E402
 from src.physics import transport as T                       # noqa: E402
 from src.utils.graph import build_dust_graph                 # noqa: E402
 
@@ -119,7 +120,87 @@ def main():
            tend[CENTRE, CENTRE] > 0,
            f"tendency at convergence centre {tend[CENTRE, CENTRE]:+.3e}")
 
+    # ---- 8-13. boundary-layer stability ------------------------------------- #
+    # Sign errors here are as silent as sign errors in advection: a model fed an
+    # inverted Richardson number learns that stable air mixes, and still trains.
+    check_stability()
+
     print(f"\n{sum(results)}/{len(results)} checks passed")
+
+
+def _levels_dataset(temps_k, u_ms, v_ms, heights_m, q=1e-3):
+    """A one-timestep, one-cell ERA5-shaped dataset at the five standard levels.
+
+    `temps_k`, `u_ms`, `v_ms`, `heights_m` are given top-down: 250, 500, 700,
+    850, 900 hPa, matching `S.LEVELS_HPA`.
+    """
+    import xarray as xr
+    n = len(S.LEVELS_HPA)
+    shape = (1, n, 1, 1)
+    mk = lambda a: np.asarray(a, dtype="float64").reshape(shape)
+    return xr.Dataset(
+        {"z": (("valid_time", "pressure_level", "latitude", "longitude"),
+               mk(np.asarray(heights_m) * S.GRAVITY)),
+         "t": (("valid_time", "pressure_level", "latitude", "longitude"), mk(temps_k)),
+         "q": (("valid_time", "pressure_level", "latitude", "longitude"),
+               mk([q] * n)),
+         "u": (("valid_time", "pressure_level", "latitude", "longitude"), mk(u_ms)),
+         "v": (("valid_time", "pressure_level", "latitude", "longitude"), mk(v_ms))},
+        coords={"pressure_level": list(S.LEVELS_HPA)})
+
+
+def check_stability():
+    ch = {name: i for i, name in enumerate(S.CHANNEL_NAMES)}
+    # Standard heights for 250/500/700/850/900 hPa, metres.
+    ZS = [10400.0, 5600.0, 3000.0, 1450.0, 1000.0]
+    CALM = [0.0] * 5
+
+    # Potential temperature must exceed the actual temperature aloft (p < p0)
+    # and equal it at 1000 hPa.
+    report("potential temperature reduces to T at 1000 hPa and exceeds it aloft",
+           abs(S.potential_temperature(300.0, 1000.0) - 300.0) < 1e-9
+           and S.potential_temperature(250.0, 500.0) > 250.0,
+           f"theta(300K, 1000hPa) = {S.potential_temperature(300.0, 1000.0):.3f} K; "
+           f"theta(250K, 500hPa) = {S.potential_temperature(250.0, 500.0):.1f} K")
+
+    # A strong low-level inversion: theta rising sharply with height, no shear.
+    # Buoyancy wins, nothing mixes, dust is trapped at the surface -> Ri > 0.
+    stable = S.derive(_levels_dataset([230, 255, 285, 305, 300], CALM, CALM, ZS))
+    report("an inversion (theta increasing with height, no shear) gives Ri > 0",
+           stable[0, ch["ri_900_850"], 0, 0] > 0,
+           f"arctan(Ri) 900-850 = {stable[0, ch['ri_900_850'], 0, 0]:+.4f}")
+
+    # A superadiabatic afternoon boundary layer: theta FALLING with height, so
+    # the layer overturns on its own -> Ri < 0.
+    unstable = S.derive(_levels_dataset([230, 255, 280, 292, 300], CALM, CALM, ZS))
+    report("a superadiabatic layer (theta falling with height) gives Ri < 0",
+           unstable[0, ch["ri_900_850"], 0, 0] < 0,
+           f"arctan(Ri) 900-850 = {unstable[0, ch['ri_900_850'], 0, 0]:+.4f}")
+
+    # Same stratification, strong shear added: turbulence production rises, so Ri
+    # must FALL. This is the sign that decides whether a shamal mixes dust down.
+    sheared = S.derive(_levels_dataset([230, 255, 285, 305, 300],
+                                       [0, 0, 0, 20, 0], CALM, ZS))
+    report("shear reduces Ri at fixed stratification",
+           sheared[0, ch["ri_900_850"], 0, 0] < stable[0, ch["ri_900_850"], 0, 0],
+           f"calm {stable[0, ch['ri_900_850'], 0, 0]:+.4f} -> "
+           f"sheared {sheared[0, ch['ri_900_850'], 0, 0]:+.4f}")
+
+    # The pole at zero shear must not produce inf or NaN anywhere.
+    report("Ri is finite and bounded even at exactly zero shear",
+           np.all(np.isfinite(stable)) and np.abs(stable[0, ch["ri_900_850"]]).max() < np.pi / 2,
+           f"max |arctan(Ri)| = {np.abs(stable[0, ch['ri_900_850']]).max():.4f} "
+           f"< pi/2 = {np.pi/2:.4f}, no NaN or inf in {stable.size} values")
+
+    # Low-level jet: the strongest wind of 900/850/700 sits at 850 hPa, so the
+    # reported level must be the middle one (0.5) and the speed must be its speed.
+    jet = S.derive(_levels_dataset([230, 255, 285, 305, 300],
+                                   [0, 0, 6, 18, 4], CALM, ZS))
+    report("low-level jet is located at the level that carries the strongest wind",
+           abs(jet[0, ch["llj_level"], 0, 0] - 0.5) < 1e-6
+           and abs(jet[0, ch["llj_speed"], 0, 0] - 18.0) < 1e-4,
+           f"level {jet[0, ch['llj_level'], 0, 0]:.1f} (0=900, 0.5=850, 1=700), "
+           f"speed {jet[0, ch['llj_speed'], 0, 0]:.1f} m/s")
     if not all(results):
         sys.exit("PHYSICS AUDIT FAILED -- dust is moving the wrong way somewhere")
 
