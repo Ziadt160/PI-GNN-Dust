@@ -18,8 +18,17 @@ That finding is the project's main result so far.
 
 > Adds real, spatially-generalising skill at 24–48 h (1.9× persistence, 3.6×
 > climatology, 1.45× gradient boosting). **Not usable as a warning system** —
-> catching half of dust storms costs ~90% false alarms. Still ~2× below the
-> WMO SDS-WAS operational bar of TS ≈ 0.31.
+> catching half of dust storms costs ~90% false alarms.
+
+**Amended 2026-09-22 — the "2× below the WMO bar" line is withdrawn.** It compared
+our `dust_storm` grade (vis < 1 km, base rate 1.26%) against published numbers
+measured at 13–22%, and TS falls with the base rate whether or not the forecast
+got worse. Measured in `experiments/verify_metrics.py`: at *constant* forecast
+quality TS drops 11.4× from our `dusty` grade to our `severe` grade while SEDI
+does not move at all. Compare at **`dusty`** (vis < 5 km, base rate **8.09%**),
+which is the band every published dust-event definition sits in, or compare with
+**SEDI**, which is base-rate independent. And the 0.31 itself was never traced to
+a primary source — see the `WMO SDS-WAS` entry in `src/metrics/literature.py`.
 
 Never quote a CAMS-scored number as a forecast skill number. Report both:
 `TS 0.77 vs CAMS reanalysis` and `TS 0.14 vs station observations` are different
@@ -148,6 +157,36 @@ Env: **`dust_gpu`** (`C:/Users/20102/miniconda3/envs/dust_gpu/python.exe`),
 torch 2.5.1+cu121, GTX 1650 4 GB. `dust_analysis` is CPU-only — don't use it.
 
 ---
+
+## 6b. Added 2026-09-22 — literature review, SEDI, levels, ordinal head
+
+Commits `b8d4d65` and `4693333` on `claude/dust-storm-prediction-research-13f4f6`
+(branched from `e4e8f8b`; cherry-pick or merge onto the integration branch).
+
+| What | State |
+|---|---|
+| **SEDI / EDI** in `aidust_metrics`, base rates on every scored table, raw preds saved to `results/preds/` | ✅ done and measured |
+| **`verify_metrics.py`** — 19 checks: base-rate dependence, SEDI properties, ordinal head | ✅ 19/19 |
+| **`src/physics/stability.py`** — t_500, t_700-500, Ri, shear, low-level jet | ✅ built, 6 new checks in `verify_dust_physics.py` (now 14/14) |
+| **`download_era5_levels.py`** — 440 parallel CDS requests, ~2.6 GB | ⏳ **running**, hours to go |
+| **`src/models/ordinal.py`** — SORD head, monotone tail sums | ✅ built and verified |
+| **`ablation_levels.py`** — base / +levels / +ordinal / both, multi-seed | ⏳ base vs ordinal running; levels arm blocked on the download |
+
+Measured base rates (daily, interior, test 2021–2024) — quote these, not estimates:
+`dusty` **8.09%**, `dust_storm` **1.26%**, `severe` **0.23%**.
+
+Two things that bit, both now regression-tested:
+
+- **Inverse-frequency class weights normalised to mean 1** drove the majority
+  grade to 0.004, so the model would have got almost no gradient for saying
+  "clear". Weights are now relative to the most common grade.
+- **ERA5 returns `pressure_level` ascending by height** (900 first), not in the
+  order the level list is written. Every access goes through a value lookup;
+  do not replace it with positional indexing.
+
+The CDS **pressure-level** cost limit is far tighter than single-levels: 1 variable
+× 1 quarter is accepted, 5 variables × 1 month is refused. Nearly all the ~8 min
+per request is queue wait, hence the thread pool.
 
 ## 7. Resume here
 
