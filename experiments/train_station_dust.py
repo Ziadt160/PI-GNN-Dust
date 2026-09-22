@@ -83,9 +83,18 @@ class StationDustModel(nn.Module):
         self.register_buffer("std", torch.ones(in_channels))
 
     def set_stats(self, m, s):
+        """Store normalisation buffers, safely for near-constant channels.
+
+        Clamping std to 1e-6 turns a channel that looks constant in the stats
+        subsample into a 1e6 amplifier for anything that deviates from it later.
+        A genuinely constant channel carries no information and should pass
+        through at natural scale, so its std becomes 1.0 rather than epsilon.
+        """
         with torch.no_grad():
+            s = torch.as_tensor(s, dtype=torch.float32)
+            s = torch.where(s < 1e-3, torch.ones_like(s), s)
             self.mean.copy_(torch.as_tensor(m, dtype=torch.float32))
-            self.std.copy_(torch.clamp(torch.as_tensor(s, dtype=torch.float32), min=1e-6))
+            self.std.copy_(s)
 
     def forward(self, x, edge_index, pos):
         pm10, u, v = x[:, 0:1], x[:, 1:2], x[:, 2:3]
@@ -444,7 +453,13 @@ def main():
         n_ch = asm.n_channels + n_obs_ch
         # One softmax over grades, or one sigmoid per threshold.
         n_out = n_grades if args.ordinal else len(names)
-        sub = feats(tr[::max(1, len(tr) // 80)]).reshape(-1, n_ch)
+        # RANDOM, not strided. `tr[::len(tr)//80]` gave a stride of 584, an
+        # exact multiple of the 8 steps per day, so every sampled point landed
+        # at midnight: hour_sin and hour_cos had std exactly 0 in the stats,
+        # were clamped to 1e-6, and every sample at any other hour normalised
+        # to ~1e6. A random subsample cannot alias with any period.
+        stat_idx = np.sort(rng.choice(tr, size=min(200, len(tr)), replace=False))
+        sub = feats(stat_idx).reshape(-1, n_ch)
         if args.transport:
             lead_h = step * 3
             k_hops = hops_for_horizon(lead_h)

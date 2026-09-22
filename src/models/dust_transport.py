@@ -161,7 +161,10 @@ class DustTransportGNN(nn.Module):
     def set_stats(self, m, s):
         with torch.no_grad():
             self.mean.copy_(torch.as_tensor(m, dtype=torch.float32))
-            self.std.copy_(torch.clamp(torch.as_tensor(s, dtype=torch.float32), min=1e-6))
+            s = torch.as_tensor(s, dtype=torch.float32)
+            # See StationDustModel.set_stats: a 1e-6 floor turns a channel that
+            # is constant in the stats subsample into a 1e6 amplifier.
+            self.std.copy_(torch.where(s < 1e-3, torch.ones_like(s), s))
 
     def forward(self, x, edge_index, pos, readout=None):
         """
