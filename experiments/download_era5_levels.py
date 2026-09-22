@@ -43,14 +43,21 @@ level -- each part is skipped if already on disk, and a year's 20 parts are merg
 into one `era5_lev_<year>.nc` only once all of them are present, so killing the
 script mid-year loses nothing.
 
-**Requests run concurrently, and they have to.**  One pressure-level request took
-about eight minutes end to end, nearly all of it queue wait rather than transfer.
-Serially that is 440 x 8 minutes, close to 60 hours, which is not a download
-anybody waits for.  A small thread pool turns it into roughly ``60 / WORKERS``
-hours.  The default of 6 is deliberately modest: CDS throttles per user, and
-asking for more parallelism than the service grants gets requests rejected rather
-than served faster.  A failed part is reported and skipped, not retried in a
-tight loop, and re-running the script picks it up.
+**Concurrency is capped by the service, not by us, and the cap is low.**  One
+pressure-level request takes about eight minutes end to end, nearly all of it
+queue wait rather than transfer, so serial would be 440 x 8 minutes -- close to
+60 hours.  The obvious fix is a thread pool, and it does not work the way you
+would hope: at 6 workers CDS rejected 15 of 20 parts outright with
+
+    Number queued requests for this dataset is temporarily limited
+
+The limit is on requests QUEUED per dataset.  Going wider converts successes into
+rejections rather than finishing sooner, so WORKERS is 2 and every part retries
+with exponential backoff instead of being dropped.  Budget roughly **24-30 hours**
+for the full 22 years.  If that is too long, run the test and validation years
+first (``2019 2024``) -- but note that training on years without levels and
+testing on years with them is the distribution shift this file's next paragraph
+warns about, so a partial archive is for experimenting, not for a reported result.
 
 **Download all 22 years, not a recent subset.**  The training split is 2003-2018.
 Holding levels for 2015-2024 only would mean training on proxies and testing on
@@ -68,6 +75,7 @@ import glob
 import shutil
 import zipfile
 import tempfile
+import time
 import concurrent.futures as cf
 
 import xarray as xr
@@ -97,10 +105,19 @@ MONTHS = [f"{m:02d}" for m in range(1, 13)]
 # One variable per quarter is the largest request the cost limit accepts.
 QUARTERS = [MONTHS[0:3], MONTHS[3:6], MONTHS[6:9], MONTHS[9:12]]
 
-# Concurrent CDS requests. See the module docstring: the cost is queue wait, not
-# bandwidth, so this is the only knob that decides whether the download finishes
-# overnight or over three days. Raise it only if CDS is not rejecting requests.
-WORKERS = int(os.environ.get("ERA5_LEVEL_WORKERS", "6"))
+# Concurrent CDS requests. MEASURED, not guessed: at 6 the service rejected 15 of
+# 20 parts outright with "Number queued requests for this dataset is temporarily
+# limited". The cap is on requests QUEUED per dataset, not on bandwidth, so going
+# wider does not go faster -- it converts successes into rejections. 2 is what the
+# service actually tolerates here.
+WORKERS = int(os.environ.get("ERA5_LEVEL_WORKERS", "2"))
+
+# The queue cap is transient, so a rejection means "come back later", not "give
+# up". Without a retry the part is simply lost until someone re-runs the script.
+MAX_ATTEMPTS = 8
+BACKOFF_S = 90          # doubles each attempt, capped
+BACKOFF_MAX_S = 900
+THROTTLE_MARKERS = ("temporarily limited", "too many", "rate limit", "429")
 
 
 def _extract(zip_or_nc, out_nc):
@@ -126,13 +143,32 @@ def _extract(zip_or_nc, out_nc):
 
 
 def _retrieve(request, out_nc):
+    """Fetch one part, waiting out the queue cap rather than dropping the part."""
     if os.path.exists(out_nc):
         print(f"  skip (exists): {os.path.basename(out_nc)}", flush=True)
         return
     os.makedirs(OUT_DIR, exist_ok=True)
     raw = out_nc + ".download"
-    cdsapi.Client().retrieve("reanalysis-era5-pressure-levels", request, raw)
-    _extract(raw, out_nc)
+    name = os.path.basename(out_nc)
+
+    delay = BACKOFF_S
+    for attempt in range(1, MAX_ATTEMPTS + 1):
+        try:
+            cdsapi.Client(quiet=True).retrieve(
+                "reanalysis-era5-pressure-levels", request, raw)
+            _extract(raw, out_nc)
+            return
+        except Exception as exc:
+            msg = str(exc)
+            throttled = any(m in msg.lower() for m in THROTTLE_MARKERS)
+            if os.path.exists(raw):
+                os.remove(raw)
+            if attempt == MAX_ATTEMPTS or not throttled:
+                raise
+            print(f"  queue full, retrying {name} in {delay}s "
+                  f"(attempt {attempt}/{MAX_ATTEMPTS})", flush=True)
+            time.sleep(delay)
+            delay = min(delay * 2, BACKOFF_MAX_S)
 
 
 def _base():
