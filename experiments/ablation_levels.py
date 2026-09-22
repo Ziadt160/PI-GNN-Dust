@@ -57,11 +57,41 @@ REPORT = [("24h", "dusty", "no-obs"),
           ("48h", "dusty", "no-obs")]
 
 
+EXPECTED_HORIZONS = {"3h", "24h", "48h"}
+
+
+def arm_complete(path):
+    """Has this arm finished EVERY horizon, or only some of them?
+
+    `train_station_dust.py` now writes its results file after each horizon so a
+    late failure cannot discard earlier work. The cost is that "the file exists"
+    no longer means "the arm is done" -- a partial file appears within minutes of
+    the run starting. Skipping on existence alone would silently drop the 48 h
+    horizon of any arm that was interrupted.
+
+    Files written before `complete` was added fall back to deriving the finished
+    horizons from the result keys.
+    """
+    if not os.path.exists(path):
+        return False
+    try:
+        with open(path, encoding="utf-8") as fh:
+            d = json.load(fh)
+    except (json.JSONDecodeError, OSError):
+        return False       # half-written or unreadable: redo it
+    done = set(d.get("complete") or
+               {k.split("|")[0] for k in d.get("results", {})})
+    return EXPECTED_HORIZONS <= done
+
+
 def run_arm(arm, seed, epochs, out_dir, python):
     out = os.path.join(out_dir, f"abl_{arm.replace('+', '_')}_s{seed}.json")
-    if os.path.exists(out):
-        print(f"  skip (exists): {os.path.basename(out)}", flush=True)
+    if arm_complete(out):
+        print(f"  skip (complete): {os.path.basename(out)}", flush=True)
         return out
+    if os.path.exists(out):
+        print(f"  redo (partial): {os.path.basename(out)} -- "
+              f"resuming from its checkpoints", flush=True)
     cmd = ([python, "-u", os.path.join("experiments", "train_station_dust.py"),
             "--epochs", str(epochs), "--seed", str(seed), "--out", out]
            + COMMON + ARMS[arm])
