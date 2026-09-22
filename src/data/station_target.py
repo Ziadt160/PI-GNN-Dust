@@ -138,11 +138,15 @@ class DustTarget:
         Returns ``(labels, valid, extra)``:
           labels ``[T, S, n_thresholds]`` bool  -- event at each threshold
           valid  ``[T, S]`` bool                -- an observation was matched
+                                                   (use for MODEL INPUTS)
+          extra["label_valid"]                 -- and it is interpretable as
+                                                   dust (use for LOSS/SCORING)
           extra  dict with ``log_beta``, ``censored``, ``dust_code``, ``station_ids``
         """
         times = pd.DatetimeIndex(times)
         names = list(EVENT_THRESHOLDS)
         sids, labs, vals, lbeta, cens, codes, wets = [], [], [], [], [], [], []
+        lvals = []          # which observations may be SCORED (see below)
 
         for s in self.stations:
             frame = self.raw(s["id"])
@@ -152,15 +156,26 @@ class DustTarget:
                               tolerance=pd.Timedelta(tolerance))
             ok = a["vis_km"].notna().to_numpy()
             wet = a["wet_code"].astype("boolean").fillna(False).to_numpy(dtype=bool)
-            if dust_gate:
-                # Screen rather than relabel. A fog hour is not evidence that no
-                # dust was present, so calling it a negative would be as wrong as
-                # calling it an event; it carries no information either way.
-                # Xu et al. 2026 do the same, discarding samples with RH >= 70%
-                # or precipitation above 0.1 mm/h before training.
-                ok = ok & ~wet
+            # TWO masks, because a fog hour plays two different roles.
+            #
+            #   valid       an observation exists -> usable as MODEL INPUT
+            #   label_valid it is interpretable as dust -> usable as a LABEL
+            #
+            # The first version returned one mask for both, and the confound was
+            # measurable. Gating cost -0.078 mean TS in `obs` mode, where the
+            # station's own reading is fed in, while being +0.006 in `no-obs`
+            # mode, where it is withheld anyway and the gate cannot touch the
+            # input. That split is the signature of starving the input, not of a
+            # bad label definition.
+            #
+            # A foggy observation is genuinely uninformative about DUST, so it
+            # must not train or score the model -- Xu et al. 2026 discard such
+            # samples too. But it still says the air is moist and stable, which
+            # is real information about the atmosphere. Withholding that from the
+            # inputs throws away signal for no reason.
             sids.append(s["id"])
             vals.append(ok)
+            lvals.append(ok & ~wet if dust_gate else ok)
             wets.append(wet)
             labs.append(np.stack([(a["vis_km"] < EVENT_THRESHOLDS[n]).to_numpy()
                                   for n in names], axis=-1))
@@ -177,6 +192,7 @@ class DustTarget:
                  "censored": np.stack(cens, axis=1),
                  "dust_code": np.stack(codes, axis=1),
                  "wet_code": np.stack(wets, axis=1),
+                 "label_valid": np.stack(lvals, axis=1),
                  "dust_gate": bool(dust_gate),
                  "station_ids": sids,
                  "threshold_names": names})

@@ -297,6 +297,10 @@ def main():
     names = extra["threshold_names"]
     cols = [extra["station_ids"].index(s) for s in kept]
     labels, valid = labels[:, cols], valid[:, cols]
+    # `valid` gates the INPUTS, `lvalid` gates the LOSS and SCORING. Without
+    # --dust-gate they are identical; with it, water-obscured hours stay as
+    # inputs but stop being labels.
+    lvalid = extra["label_valid"][:, cols]
 
     # Boundary vs interior is a statement about which cells can be PREDICTED, not
     # about which observations are useful.  Boundary cells have a truncated stencil
@@ -338,6 +342,7 @@ def main():
             print(f"  dropped {len(boundary)} boundary stations entirely: "
                   f"{', '.join(boundary)}")
             labels, valid = labels[:, interior_sel], valid[:, interior_sel]
+            lvalid = lvalid[:, interior_sel]
             node_idx = node_idx[interior_sel]
             kept = [kept[k] for k in interior_sel]
             interior_sel = np.arange(len(kept))
@@ -353,10 +358,12 @@ def main():
     print(f"\nstations in graph: {len(kept)} -> {len(set(node_idx))} distinct cells")
     if args.dust_gate:
         wet = extra["wet_code"][:, cols]
+        print(f"  labels dropped, inputs KEPT: the observation still feeds "
+              f"the model, it just stops being a dust label")
         print(f"dust gate ON: discarded {int(wet.sum()):,} water-obscured "
               f"station-hours ({wet.mean()*100:.2f}% of the record)")
     print("observed base rates:")
-    print(DustTarget.summarise(labels, valid, names), flush=True)
+    print(DustTarget.summarise(labels, lvalid, names), flush=True)
 
     max_h = max(HORIZON_STEPS.values())
 
@@ -483,7 +490,7 @@ def main():
 
         if args.ordinal:
             gw = inverse_frequency_weights(
-                grades[:, train_st][valid[:, train_st]], n_grades, cap=200.0)
+                grades[:, train_st][lvalid[:, train_st]], n_grades, cap=200.0)
             sord = SORDLoss(n_grades, class_weight=gw).to(device)
             print(f"  ordinal head: {n_grades} grades, SORD loss, "
                   f"class weights {np.round(gw, 2).tolist()}", flush=True)
@@ -491,12 +498,12 @@ def main():
             def loss_of(out, sel, stations, _step):
                 y = torch.from_numpy(
                     grades[sel + _step][:, stations]).to(device)
-                m = torch.from_numpy(valid[sel + _step][:, stations]).to(device)
+                m = torch.from_numpy(lvalid[sel + _step][:, stations]).to(device)
                 return sord(out, y, m), int(m.sum())
         else:
             pw = []
             for k in range(len(names)):
-                lab = labels[:, train_st, k][valid[:, train_st]]
+                lab = labels[:, train_st, k][lvalid[:, train_st]]
                 r = max(lab.mean(), 1e-6)
                 pw.append(min((1 - r) / r, 200.0))
             lossfn = nn.BCEWithLogitsLoss(
@@ -507,7 +514,7 @@ def main():
                 y = torch.from_numpy(
                     labels[sel + _step][:, stations].astype("float32")).to(device)
                 m = torch.from_numpy(
-                    valid[sel + _step][:, stations]).to(device).unsqueeze(-1).expand_as(y)
+                    lvalid[sel + _step][:, stations]).to(device).unsqueeze(-1).expand_as(y)
                 return (lossfn(out, y) * m).sum() / m.sum().clamp(min=1), int(m.sum())
 
         def event_probs(out):
@@ -661,7 +668,7 @@ def main():
                         model(x.reshape(B * N, C), ei, pos.repeat(B, 1)), B, N)
                     P.append(event_probs(main[:, node_idx[eval_st], :]).cpu().numpy())
                     Y.append(labels[sel + step][:, eval_st])
-                    Mk.append(valid[sel + step][:, eval_st])
+                    Mk.append(lvalid[sel + step][:, eval_st])
             P = np.concatenate(P); Y = np.concatenate(Y).astype(bool)
             Mk = np.concatenate(Mk)[..., None].repeat(len(names), -1)
 
