@@ -96,6 +96,34 @@ class StationDustModel(nn.Module):
         return self.head(self.drop(h))
 
 
+def ckpt_path(run_tag, hname):
+    """Resumable state for one (run, horizon): weights, optimiser, epoch, patience."""
+    os.makedirs(os.path.join("results", "checkpoints"), exist_ok=True)
+    return os.path.join("results", "checkpoints", f"{run_tag}_{hname}.pt")
+
+
+def log_path(run_tag, hname):
+    """Append-only per-epoch metric log, one JSON object per line."""
+    os.makedirs(os.path.join("results", "logs"), exist_ok=True)
+    return os.path.join("results", "logs", f"{run_tag}_{hname}.jsonl")
+
+
+def write_results(out, results, kept, held, args):
+    """Persist whatever is scored so far.
+
+    Called after EVERY horizon, not once at the end. A 48 h horizon that dies
+    used to take the finished 3 h and 24 h results down with it -- three hours of
+    GPU time discarded because the process exited before a single write.
+    """
+    os.makedirs(os.path.dirname(out) or ".", exist_ok=True)
+    tmp = out + ".partial"
+    with open(tmp, "w", encoding="utf-8") as fh:
+        json.dump({"results": results, "stations": kept, "loso": sorted(held),
+                   "complete": sorted({k.split("|")[0] for k in results}),
+                   "args": vars(args)}, fh, indent=2, default=str)
+    os.replace(tmp, out)      # atomic: a crash mid-write cannot corrupt the file
+
+
 def contingency(pred_evt, obs_evt):
     """Full categorical score set for one threshold.
 
@@ -146,6 +174,16 @@ def main():
                          "hops scaled to the forecast horizon, readout at interior "
                          "cells only. The default 2-hop model has a 152 km reach, "
                          "while 24 h transport is 500-700 km")
+    ap.add_argument("--resume", dest="resume", action="store_true", default=True,
+                    help="continue from results/checkpoints/<out>_<horizon>.pt when "
+                         "one exists: completed horizons are skipped, a partial one "
+                         "restarts at its next epoch with optimiser state and "
+                         "patience counter intact. On by default")
+    ap.add_argument("--fresh", dest="resume", action="store_false",
+                    help="ignore any checkpoint and retrain from scratch. Use this "
+                         "after changing the model, the features or the labels, "
+                         "since a checkpoint from the old definition would silently "
+                         "be loaded into the new one")
     ap.add_argument("--dust-gate", action="store_true",
                     help="discard station-hours whose low visibility is coded as "
                          "water (fog, mist, rain, thunderstorm) with no dust code. "
@@ -447,23 +485,71 @@ def main():
                     "cover these years? run download_metar_saudi.py for 2003-2024.")
             return tot / max(nb, 1)
 
-        best, state, bad, t0 = float("inf"), None, 0, time.time()
-        for ep in range(args.epochs):
-            trl = run(tr, train_st, True)
-            with torch.no_grad():
-                vl = run(va, train_st, False)
-            if vl < best - 1e-4:
-                best, bad = vl, 0
-                state = {k: v.clone() for k, v in model.state_dict().items()}
+        best, state, bad, ep0, done = float("inf"), None, 0, 0, False
+        t0 = time.time()
+        ck = ckpt_path(run_tag, hname)
+        log = log_path(run_tag, hname)
+
+        # Resume: a run that died at epoch 40 of 60 should not start over, and a
+        # horizon that already finished should not be retrained at all.
+        if args.resume and os.path.exists(ck):
+            saved = torch.load(ck, map_location=device, weights_only=False)
+            model.load_state_dict(saved["model"])
+            opt.load_state_dict(saved["opt"])
+            best, bad, ep0 = saved["best"], saved["bad"], saved["epoch"]
+            state, done = saved.get("best_state"), bool(saved.get("done"))
+            if done:
+                print(f"  resume: {hname} already complete "
+                      f"({ep0} epochs, best val {best:.4f}) -- skipping training",
+                      flush=True)
             else:
-                bad += 1
-            print(f"  ep {ep+1:3d}/{args.epochs}  train {trl:.4f}  val {vl:.4f}"
-                  f"{'  *' if bad == 0 else ''}", flush=True)
-            if bad >= PATIENCE:
-                print(f"  early stop (no val gain in {PATIENCE} epochs)", flush=True)
-                break
+                print(f"  resume: continuing {hname} from epoch {ep0+1} "
+                      f"(best val {best:.4f}, {bad}/{PATIENCE} without gain)",
+                      flush=True)
+
+        # Defined even when the loop never runs (resumed-complete, or ep0 already
+        # at --epochs), so the final save_ckpt below cannot raise NameError.
+        ep = ep0 - 1
+
+        def save_ckpt(epoch, finished):
+            torch.save({"model": model.state_dict(), "opt": opt.state_dict(),
+                        "best": best, "bad": bad, "epoch": epoch,
+                        "best_state": state, "done": finished,
+                        "n_ch": n_ch, "n_out": n_out, "names": names,
+                        "ordinal": bool(args.ordinal),
+                        "channels": list(asm.channels), "tag": run_tag}, ck)
+
+        if not done:
+            for ep in range(ep0, args.epochs):
+                trl = run(tr, train_st, True)
+                with torch.no_grad():
+                    vl = run(va, train_st, False)
+                if vl < best - 1e-4:
+                    best, bad = vl, 0
+                    state = {k: v.clone() for k, v in model.state_dict().items()}
+                else:
+                    bad += 1
+                print(f"  ep {ep+1:3d}/{args.epochs}  train {trl:.4f}  val {vl:.4f}"
+                      f"{'  *' if bad == 0 else ''}", flush=True)
+
+                # Append-only, flushed per line: if the process dies mid-epoch the
+                # history up to here survives and is still valid JSON per line.
+                with open(log, "a", encoding="utf-8") as fh:
+                    fh.write(json.dumps({
+                        "horizon": hname, "epoch": ep + 1, "train_loss": trl,
+                        "val_loss": vl, "best_val": best, "epochs_without_gain": bad,
+                        "improved": bad == 0,
+                        "elapsed_min": round((time.time() - t0) / 60, 2),
+                        "wall": time.strftime("%Y-%m-%dT%H:%M:%S")}) + "\n")
+
+                save_ckpt(ep + 1, False)
+                if bad >= PATIENCE:
+                    print(f"  early stop (no val gain in {PATIENCE} epochs)", flush=True)
+                    break
+
         if state:
             model.load_state_dict(state)
+        save_ckpt(args.epochs if done else ep + 1, True)
 
         torch.save({"state": model.state_dict(), "n_ch": n_ch, "names": names,
                     "n_out": n_out, "ordinal": bool(args.ordinal),
@@ -526,7 +612,11 @@ def main():
                     continue
                 thr = np.quantile(p, 1.0 - y.mean())     # frequency matching
                 results[f"{hname}|{nm}|{mode}"] = contingency(p >= thr, y)
-        print(f"  trained in {(time.time()-t0)/60:.1f} min\n", flush=True)
+        # Persist per horizon, so a later horizon failing cannot discard the
+        # earlier ones. Safe to call repeatedly: each write is atomic.
+        write_results(args.out, results, kept, held, args)
+        print(f"  trained in {(time.time()-t0)/60:.1f} min "
+              f"-> scored and written to {args.out}\n", flush=True)
 
     print("=== dust-event forecast vs OBSERVED station visibility (test 2021-2024) ===")
     print("  obs    = current station visibility available (nowcast-assisted)")
@@ -559,11 +649,11 @@ def main():
     print("    0.19-0.48 against >0.68 over the Sahara, so the regional bar is")
     print("    probably lower. Do not quote 0.31 without chasing the AEMET report.")
 
-    os.makedirs(os.path.dirname(args.out), exist_ok=True)
-    with open(args.out, "w") as fh:
-        json.dump({"results": results, "stations": kept, "loso": sorted(held),
-                   "args": vars(args)}, fh, indent=2, default=str)
+    write_results(args.out, results, kept, held, args)
     print(f"\nwrote {args.out}")
+    print(f"per-epoch logs : results/logs/{run_tag}_<horizon>.jsonl")
+    print(f"checkpoints    : results/checkpoints/{run_tag}_<horizon>.pt "
+          f"(re-run the same command to resume; --fresh to ignore them)")
 
 
 if __name__ == "__main__":
