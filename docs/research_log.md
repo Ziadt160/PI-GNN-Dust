@@ -1,6 +1,9 @@
-# Dust forecasting — project state and how to resume
+# Research log — project state and how to resume
 
-Written 2026-09-22. Read this first; it replaces reconstructing the story from code.
+Written 2026-09-22 as the handover between working sessions, and kept as the
+project's detailed lab notebook: every finding, the bug that would have invalidated
+it, and what to try next. The [README](../README.md) has the summary; this is the
+evidence behind it. §6c records the work committed after this log was written.
 
 ---
 
@@ -23,7 +26,7 @@ That finding is the project's main result so far.
 **Amended 2026-09-22 — the "2× below the WMO bar" line is withdrawn.** It compared
 our `dust_storm` grade (vis < 1 km, base rate 1.26%) against published numbers
 measured at 13–22%, and TS falls with the base rate whether or not the forecast
-got worse. Measured in `experiments/verify_metrics.py`: at *constant* forecast
+got worse. Measured in `tests/test_metrics.py`: at *constant* forecast
 quality TS drops 11.4× from our `dusty` grade to our `severe` grade while SEDI
 does not move at all. Compare at **`dusty`** (vis < 5 km, base rate **8.09%**),
 which is the band every published dust-event definition sits in, or compare with
@@ -131,9 +134,12 @@ Guards now in place: per-model seeding, driver-coverage threshold (98%), zero-la
 - `src/metrics/literature.py` — 8 published references with `comparable: False` flags
 
 ### Experiments
-`train_station_dust.py` (main), `baselines_station.py`, `feature_importance.py`,
-`operating_points.py`, `validate_vs_metar.py`, `verify_dust_physics.py` (**8/8, re-run
-after any change**), `build_erodibility_map.py`, `download_*.py`, `rescore.py`
+`experiments/station_dust/`: `train_station_dust.py` (main), `baselines_station.py`,
+`feature_importance.py`, `operating_points.py`.
+`experiments/saudi_pm10/`: `validate_vs_metar.py`, `rescore.py`.
+`experiments/data_prep/`: `build_erodibility_map.py`, `download_*.py`.
+The physics audit is `tests/test_dust_physics.py` (**re-run after any change**:
+`pytest tests/`).
 
 ---
 
@@ -150,24 +156,25 @@ after any change**), `build_erodibility_map.py`, `download_*.py`, `rescore.py`
 | **CAMS wide** | ⏳ **20/22** (missing 2023, 2024) |
 | **ERA5 wide** | ⏳ **2 files only** — barely started |
 
-Credentials configured: `~/.cdsapirc` (CDS **and** ADS, licences accepted),
-`~/.openaq_key`, `~/.edl_token` (expires 2026-11-19).
+Credentials the downloaders expect: `~/.cdsapirc` (ECMWF CDS **and** ADS, with the
+dataset licences accepted), `~/.edl_token` (NASA Earthdata, for MAIAC),
+`~/.openaq_key` (OpenAQ).
 
-Env: **`dust_gpu`** (`C:/Users/20102/miniconda3/envs/dust_gpu/python.exe`),
-torch 2.5.1+cu121, GTX 1650 4 GB. `dust_analysis` is CPU-only — don't use it.
+The large datasets are found under `DUST_DATA_ROOT` (default: the repo's `data/`;
+see `src/paths.py`). Results were produced with Python 3.10, torch 2.5.1+cu121 on a
+4 GB GTX 1650; versions are pinned in `requirements.txt`.
 
 ---
 
 ## 6b. Added 2026-09-22 — literature review, SEDI, levels, ordinal head
 
-Commits `b8d4d65` and `4693333` on `claude/dust-storm-prediction-research-13f4f6`
-(branched from `e4e8f8b`; cherry-pick or merge onto the integration branch).
+Commits `b8d4d65` and `4693333`.
 
 | What | State |
 |---|---|
 | **SEDI / EDI** in `aidust_metrics`, base rates on every scored table, raw preds saved to `results/preds/` | ✅ done and measured |
-| **`verify_metrics.py`** — 19 checks: base-rate dependence, SEDI properties, ordinal head | ✅ 19/19 |
-| **`src/physics/stability.py`** — t_500, t_700-500, Ri, shear, low-level jet | ✅ built, 6 new checks in `verify_dust_physics.py` (now 14/14) |
+| **`tests/test_metrics.py`** — 19 checks: base-rate dependence, SEDI properties, ordinal head | ✅ 19/19 |
+| **`src/physics/stability.py`** — t_500, t_700-500, Ri, shear, low-level jet | ✅ built, 6 new checks in `tests/test_dust_physics.py` (now 14/14) |
 | **`download_era5_levels.py`** — 440 parallel CDS requests, ~2.6 GB | ⏳ **running**, hours to go |
 | **`src/models/ordinal.py`** — SORD head, monotone tail sums | ✅ built and verified |
 | **`ablation_levels.py`** — base / +levels / +ordinal / both, multi-seed | ⏳ base vs ordinal running; levels arm blocked on the download |
@@ -188,23 +195,47 @@ The CDS **pressure-level** cost limit is far tighter than single-levels: 1 varia
 × 1 quarter is accepted, 5 variables × 1 month is refused. Nearly all the ~8 min
 per request is queue wait, hence the thread pool.
 
+## 6c. Added after this log — physics encodings and the normalisation bug
+
+Commits `4331a4a` to `165c45f`, summarised from their messages.
+
+- **Missing physics encoded as features and architecture, not as loss penalties**
+  (`--physics-features`, `--deposition`, `--conservative`): hour of day, wet and dry
+  removal as a per-node survival fraction, a threshold-excess channel, soil-moisture
+  memory, and a mass-conserving flux layer. The loss route had already been measured
+  as inert (§2, finding 9).
+- **All three together collapsed the model** to a near-constant predictor. An
+  isolation queue (`experiments/station_dust/run_queue.py`) traced it to the
+  trainer, not the physics: normalisation statistics were taken every 584th
+  sample, an exact multiple of 8 steps per day, so every sample landed at midnight,
+  hour-of-day got std 0, and the 1e-6 floor turned it into a 1e6 amplifier. Fixed
+  in `cbcc2e2` (random subsample; near-constant channels get std 1).
+- **Labels are now gated on the METAR weather code** (`--dust-gate`): 36% of
+  `severe` visibility events were fog or rain, not dust. The gate screens labels
+  only; the observation still feeds the model as input.
+- **Not yet measured:** whether the physics encodings help once the inputs are
+  sane (`ctrl_fix` vs `phys_fix`), and the dense CAMS auxiliary head
+  (`--aux-cams`). Both are queued in `run_queue.py`; their outputs go to the
+  untracked `results/ablation/`.
+
 ## 7. Resume here
 
+From the repository root, with the data located (see `src/paths.py`):
+
 ```bash
-cd "D:/Quantum Projects/DustProject/.claude/worktrees/ai-dust-deepcams-integration-5e457c"
-PY="C:/Users/20102/miniconda3/envs/dust_gpu/python.exe"
+export DUST_DATA_ROOT="/path/to/DustProject/data"
 ```
 
 **1. Finish the downloads** (ERA5 is ~12 h for 88 quarterly requests; consider
 narrowing to 2015–2024 to halve it):
 ```bash
-$PY -u experiments/data_prep/download_wide_domain.py cams 2023 2024
-$PY -u experiments/data_prep/download_wide_domain.py era5 2003 2024
+python -u experiments/data_prep/download_wide_domain.py cams 2023 2024
+python -u experiments/data_prep/download_wide_domain.py era5 2003 2024
 ```
 
 **2. Re-run the interrupted training** (never produced output):
 ```bash
-$PY -u experiments/station_dust/train_station_dust.py --epochs 60 --obs-input --upwind-obs \
+python -u experiments/station_dust/train_station_dust.py --epochs 60 --obs-input --upwind-obs \
     --interior-only --daily --transport --hidden 64 --buffer-rings 2 \
     --out results/full_buffer2.json
 ```
@@ -246,6 +277,7 @@ graph transport is finally working now that the source region exists.
 
 ## 10. Deliverable
 
-Supervisor report: <https://claude.ai/artifact/JjTgRxUVmTosaEkqjdouT5> (v5).
+Supervisor report, v5:
+[`dust_storm_forecasting_report_2026-09-22.pdf`](dust_storm_forecasting_report_2026-09-22.pdf).
 Numbers in it are current as of the 15–49× correction; the buffer-ring and
-wide-domain work is not in it yet.
+wide-domain work is not in it yet, nor is anything in §6c.

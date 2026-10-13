@@ -1,209 +1,195 @@
-# Physics-Informed Graph Neural Network (PI-GNN) for Atmospheric Dust Forecasting
+# PI-GNN-Dust
 
-![PI-GNN Architecture](results/pi_gnn_architecture.png)
-*Physics-Informed Graph Neural Network (PI-GNN) architecture for atmospheric dust transport.*
+**Physics-informed graph neural networks for forecasting dust events over Saudi Arabia.**
 
-## Project Overview
-This repository implements a Physics-Informed Graph Neural Network that forecasts
-PM10 dust concentration over a small lat/lon grid in the Arabian Gulf region. The
-grid is treated as a mesh of interacting control volumes, and transport is
-regularised toward the **advection equation** `dC/dt + u·∇C = 0`.
+[![tests](https://github.com/Ziadt160/PI-GNN-Dust/actions/workflows/tests.yml/badge.svg)](https://github.com/Ziadt160/PI-GNN-Dust/actions/workflows/tests.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+![Python 3.10](https://img.shields.io/badge/python-3.10-blue.svg)
 
-On a strictly held-out test year, the model achieves **R² ≈ 0.57** and reduces error
-by **~10% over a strong persistence baseline** — a genuine, seed-stable improvement
-(the baseline persistence model already explains ~53% of variance, so this is real
-forecast skill, not autocorrelation). All numbers below are produced by the scripts
-in this repo and reported honestly.
+The model forecasts whether an airport will observe dust — visibility below 5 km,
+1 km or 0.4 km — 3, 24 or 48 hours ahead. It runs on a graph of 251 cells covering
+Saudi Arabia at 0.75°, where each message carries the wind-driven dust flux between
+neighbouring cells. It is trained and scored on **observed** dust — 3.56 million
+METAR airport reports — rather than on a reanalysis field.
 
-> **Note on prior results.** Earlier versions of this README reported metrics
-> (e.g. persistence MSE 1.22, model MSE 0.74 / R² 0.26) that were inconsistent with
-> the data — a model MSE above the target variance (0.68) cannot have a positive R².
-> Those numbers were never produced by this pipeline and have been replaced by the
-> measured values below.
+**Where it stands.** At 24 h the flux-GNN reaches a threat score of **0.142** on
+daily dust-storm days: 3.6× climatology and 1.45× gradient boosting, so the skill is
+real and not trivially available. It is **not yet a warning system** — catching half
+the storms costs about 90% false alarms.
 
----
+## Key findings
 
-## Model
+1. **CAMS reanalysis misses dust storms by 15–49×.** Over 3,369 dust-coded storm
+   hours, CAMS PM10 had a median of 268 µg/m³, while the observed visibility
+   requires 3,912–13,040 µg/m³ (Koschmieder relation). In fog CAMS correctly stays
+   clean (48 µg/m³), so the bias is specific to dust. This ended the project's
+   original target.
+2. **Skill measured against CAMS does not transfer to real storms.** Of eight models,
+   the best against CAMS (TS 0.768) came second against observed storms; the
+   baseline that ranked sixth against CAMS came first
+   (`results/aidust_final.json`, `results/metar_validation.json`).
+3. **42% of dust storms are imported.** Local friction velocity was below the
+   emission threshold in 1,409 of 3,369 storm hours, and 68% of storms arrive on a
+   northerly wind. An interior storm is preceded by a *northern* station's storm
+   within 24 h 48.8% of the time, against 21.8% from the south.
+4. **The model is mostly a wind forecast.** Permutation importance: future
+   meteorology 40%, emission drivers 18%, CAMS PM10 5%, graph transport 3%
+   (`results/feature_importance.json`).
+5. **Physics works as architecture, not as a loss.** On the CAMS-target phase, adding
+   an advection residual to the loss cut R² from 0.616 to 0.471 while giving the
+   most realistic field structure; a complete emission–deposition residual cut it to
+   0.127. The current models put the physics into the message passing and the
+   features instead.
 
-### Architecture
-- **Graph construction** — each grid cell is a node connected to its 8 neighbours
-  (N/S/E/W + diagonals, so winds at ~45° are representable in one hop). Node
-  positions use a geographically-oriented frame (`+east`, `+north`) so wind
-  projections carry the correct sign.
-- **PhysicsFluxLayer (×2 hops)** — message passing where each message combines the
-  (standardised) node features with an explicit **upwind advection term**
-  `(u·n̂_{j→i})·(C_j − C_i)` from the *physical* source-cell wind and the
-  concentration gradient along the edge. Two stacked layers (with residual
-  connections) widen the spatial receptive field.
-- **Residual head** — predicts `Δ(log PM10)`; the next state is `C_{t+1} = C_t + Δ`.
-  The head is zero-initialised, so training starts from persistence and learns
-  corrections. (No `Softplus`: the `log1p` target is already ≥0, and a Softplus
-  would impose a spurious ln(2)≈0.69 floor on low concentrations.)
-- **Inputs** — node features carry the current frame `[log_pm10, u10, v10, t2m]`,
-  a **temporal history window** (previous frames, so the model perceives the
-  tendency `dC/dt`), the **10 m wind speed**, and a **day-of-year (sin/cos)** season
-  encoding. All features are standardised using statistics **fitted on the training
-  split only** (stored as model buffers) — no leakage across splits.
-
-### Physics-informed loss
-Two terms balanced by **homoscedastic uncertainty weighting** (Kendall et al., 2018):
-1. **Data loss** — `MSE(Ĉ_{t+1}, C_{t+1})` in log space.
-2. **Physics residual** — discretised advection residual
-   `‖(C_{t+1} − C_t) + (u·∇C_t)·Δt‖²`, using correct grid spacing
-   (`dy ≈ 83.5 km`, `dx ≈ 74.9 km` at 26°N) and the correct latitude orientation
-   (latitude decreases with row index, so the row-axis derivative is negated).
-
-Mass conservation is **not** a training penalty (an open domain exchanges mass via
-boundary flux) but is reported as a diagnostic.
-
----
+The evidence for each, and the silent bugs that would have invalidated them, is in
+the [research log](docs/research_log.md).
 
 ## Results
 
-**Evaluation protocol — strict 3-way temporal split, no leakage:**
+24 h forecast of daily dust-storm days (visibility < 1 km), interior stations, test
+years 2021–2024, 185 events:
 
-| Split | Years | Role |
-| :--- | :--- | :--- |
-| Train | 2003–2005 | parameter fitting + normalisation statistics |
-| Validation | 2006 | model selection / checkpointing (on MSE) |
-| **Test** | **2007** | held-out final evaluation (never used for selection) |
+| Model | TS | ETS | POD | FAR |
+|---|---:|---:|---:|---:|
+| never dust | 0.000 | 0.000 | 0.000 | — |
+| climatology (station × month) | 0.039 | 0.033 | 0.092 | 0.937 |
+| wind threshold | 0.072 | 0.067 | 0.135 | 0.865 |
+| logistic regression | 0.072 | 0.067 | 0.135 | 0.865 |
+| persistence | 0.076 | 0.070 | 0.141 | 0.859 |
+| gradient boosting | 0.098 | 0.093 | 0.178 | 0.822 |
+| **flux-GNN** | **0.142** | **0.137** | **0.249** | **0.751** |
 
-**Held-out test (2007), 12 h forecast, log-space:**
+Controls: `results/baselines_station.json`. Model: `results/station_daily_interior.json`,
+row `24h|dust_storm|no-obs` (the station's own current reading withheld). On the
+more common `dusty` grade (< 5 km, base rate 8.09%) the same model scores TS 0.267,
+POD 0.421, FAR 0.579.
 
-| Metric | Persistence Baseline | **PI-GNN** |
-| :--- | :---: | :---: |
-| MSE | 0.3205 | **0.2842** |
-| RMSE | 0.5661 | **0.5331** |
-| MAE | 0.4175 | **0.3961** |
-| R² | 0.5265 | **0.5802** |
+Reading these numbers:
 
-- **Skill vs persistence:** +11.3% MSE for the shipped checkpoint; **+9.9% ± 1.2%**
-  averaged over 3 seeds (R² 0.573 ± 0.006) — i.e. the gain is well outside seed noise.
-- **Wind sensitivity:** flipping the wind field changes the predicted increment
-  (corr ≈ −0.49), confirming the model uses the meteorology.
-- **Mass-conservation diagnostic:** ≈ 0.6% (log) / ≈ 4.3% (physical) domain-mean error.
-- **Autoregressive rollout** (6 steps / 72 h, true forcing): stable, no blow-up.
-- **Inference latency:** ≈ 1 ms per forecast step (CPU).
+- **ERA5 at the valid time stands in for a perfect wind forecast**, the same
+  idealisation AI-DUST's evaluation makes. A version driven by an operational
+  weather forecast would score lower.
+- **TS falls with the event's base rate even when the forecast does not get worse.**
+  At constant hit and false-alarm rates it drops 11.4× from the `dusty` grade to the
+  `severe` grade while SEDI does not move (`tests/test_metrics.py`). Compare the rare
+  `dust_storm` grade only with studies at a similar base rate.
+- **There is no usable operating point yet.** Catching 50% of storms means a false
+  alarm ratio of 0.90, about 18 false alarms per station per year
+  (`results/operating_points.json`).
 
-### What drives the performance (ablation, test 2007, 3 seeds)
+## How it works
 
-| Configuration | Test R² | Skill vs persistence |
-| :--- | :---: | :---: |
-| Baseline (single frame, 1-hop, 4-neighbour) | 0.530 | +0.5% *(within noise)* |
-| **+ history window, wind speed, season, 2-hop, 8-neighbour** | **0.573** | **+9.9%** |
-| ↳ same model at **6-hourly** resolution | **0.713** | **+20.6%** |
+```mermaid
+flowchart LR
+    met["ERA5 at the valid time<br/>wind, u*, moisture, precipitation"] --> x
+    emis["Emission drivers<br/>Shao saltation scheme"] --> x
+    cams["CAMS PM10<br/>auxiliary input"] --> x
+    obs["METAR at stations<br/>optional current state"] --> x
+    x["Node features<br/>251 cells at 0.75°"] --> flux["PhysicsFluxLayer × K hops<br/>wind-projected upwind flux"]
+    flux --> head["P(visibility under 5 / 1 / 0.4 km)<br/>at every cell"]
+    head --> loss["Class-weighted BCE<br/>at station cells only"]
+```
 
-Reproduce with `python experiments/gulf_pm10/ablation.py`. The dominant levers are giving the
-model **temporal context** (so it learns the tendency rather than copying the last
-frame) and, if a shorter horizon is acceptable, **finer temporal resolution** (the
-advection physics is only numerically valid when the CFL number is ≲ 1, which holds
-at 6 h but not 12 h).
+- **Graph.** Each land cell is a node joined to its 8 neighbours, with positions in
+  an `(east, north)` frame so wind projections carry the right sign.
+- **Transport.** Each message from cell *j* to cell *i* is an MLP over both cells'
+  features, the source wind projected onto the edge, and the upwind flux
+  `(u_j · r_ji)(C_j − C_i)`. Downwind transport is built in, not learned.
+- **Target.** One model per horizon, each fed meteorology at its own valid time. The
+  whole graph runs forward; only cells with a station are supervised, so upwind
+  cells without stations still act as sources.
 
-### Validation against classical baselines (test 2007, same features)
+The headline model uses two hops (a 152 km reach). Its successor,
+`DustTransportGNN`, scales hops with the horizon to match how far dust travels
+(7 hops, 532 km at 24 h) and adds a mass-conserving flux and per-cell deposition; it
+is still being evaluated. Details: [docs/architecture.md](docs/architecture.md).
 
-To check whether the graph + physics machinery is justified, every method is
-evaluated on the identical test set, target, and node features
-(`python experiments/gulf_pm10/classical_baselines.py`):
+## Project history
 
-| Method | MSE | R² | Skill vs persistence |
-| :--- | :---: | :---: | :---: |
-| Gradient Boosting (no graph) | **0.2421** | **0.642** | **+24.4%** |
-| Random Forest (no graph) | 0.2425 | 0.642 | +24.3% |
-| Ridge linear (no graph) | 0.2613 | 0.614 | +18.5% |
-| **PI-GNN (graph + physics)** | 0.2842 | 0.580 | +11.3% |
-| Persistence | 0.3205 | 0.527 | 0.0% |
-| Climatology (monthly) | 0.3648 | 0.461 | −13.8% |
-| Persistence-of-tendency | 0.7987 | −0.18 | −149% |
+| Phase | Target | Outcome | Code |
+|---|---|---|---|
+| 1. Gulf PM10 | CAMS PM10 on a 7 × 12 Gulf grid, 12 h ahead, 2003–2007 | R² 0.573 ± 0.006, +9.9% over persistence — but gradient boosting reached 0.642 on the same features | [`experiments/gulf_pm10`](experiments/gulf_pm10) |
+| 2. Saudi PM10 | CAMS PM10 on 251 Saudi cells, 2003–2024; 29-model AI-DUST comparison | data-driven GNN R² 0.616 (persistence 0.332); validation against airports showed CAMS itself misses storms | [`experiments/saudi_pm10`](experiments/saudi_pm10) |
+| 3. Station dust | observed airport visibility, 3–48 h ahead | current work, results above | [`experiments/station_dust`](experiments/station_dust) |
 
-**Honest interpretation.** The PI-GNN is *learning* — it clearly beats persistence,
-climatology, and naive tendency. **But it does not beat classical tabular models** on
-this task: gradient boosting, random forest, and even plain linear regression score
-higher using the same features with no graph and no physics. Because the GNN has
-strictly more information (edges + advection prior) yet underperforms, the signal here
-is predominantly **local/per-cell** at a 12 h horizon, and the physics residual likely
-regularises the model away from the best data fit. For this problem as framed, a
-**gradient-boosted tree is the stronger and simpler model**; the PI-GNN's value is in
-physical interpretability (wind-projected flux) rather than raw accuracy.
+A 1 km Riyadh track ([`experiments/riyadh_1km`](experiments/riyadh_1km)) has a
+forecast model validated on synthetic data and a dataset skeleton; its data loaders
+are not written yet.
 
-### Visual Results
-| Training Convergence | PM10 Time Series |
-| :---: | :---: |
-| ![Loss Curves](results/training_loss.png) | ![PM10 Time Series](results/pm10_timeseries.png) |
-| *Weighted train/val loss and validation MSE over epochs.* | *12-hour PM10 trajectory capturing episodic dust events.* |
+## Repository layout
 
----
+```
+├── src/                     library code
+│   ├── layers/flux.py       PhysicsFluxLayer, ConservativeFluxLayer
+│   ├── models/              dust_transport.py (current), pi_gnn.py (phase 1),
+│   │                        ordinal.py, and the AI-DUST comparison models
+│   ├── physics/             emission, transport, stability, physics losses
+│   ├── data/                Saudi fields, METAR dust labels, feature assembly
+│   ├── metrics/             TS/ETS/SEDI scores, published reference values
+│   └── paths.py             where the large datasets live (DUST_DATA_ROOT)
+├── experiments/
+│   ├── data_prep/           downloaders and dataset builders
+│   ├── gulf_pm10/           phase 1
+│   ├── saudi_pm10/          phase 2, including validation against METAR
+│   ├── station_dust/        phase 3: training, controls, importance, job queue
+│   └── riyadh_1km/          1 km downscaling track
+├── tests/                   physics, metric and checkpoint audits (pytest)
+├── configs/                 phase 1 configuration
+├── data/                    the small 2003–2007 Gulf sample (committed)
+├── results/                 cited result files and checkpoints — see results/README.md
+├── notebooks/               data exploration
+└── docs/                    architecture, research log, supervisor report
+```
 
-## How to improve further
-Ordered by expected impact (see commit history / ablation for what is already done):
-1. **Use all available years.** The CAMS target spans 2003–2024, but only 2003–2007
-   ERA5 is present — training on 3 years. Downloading ERA5 2008–2024 (the download
-   script is already configured for it) gives ~6× the data and many more dust events.
-2. **Add dust-emission predictors** to the CDS request: 10 m wind gust, volumetric
-   soil moisture, boundary-layer height, total precipitation, MSLP, and (from CAMS)
-   dust AOD / emission flux.
-3. **Forecast at 6 h** instead of 12 h if the use case allows (R² 0.53 → 0.71 here).
+## Getting started
 
----
-
-## Dataset
-- **Source:** ERA5 reanalysis (meteorology) + CAMS reanalysis (PM10 target).
-- **Region / grid:** 7 × 12 cells at 0.75° (≈24–28.5°N, 47–55.25°E).
-- **Temporal resolution:** raw data is 3-hourly; resampled to the configured cadence
-  (default 12 h mean).
-- **Target preprocessing:** PM10 scaled kg/m³ → µg/m³ (×1e9) then `log1p`
-  (target mean ≈ 4.07, variance ≈ 0.68 in log space).
-- **Variables:** PM10 (target), `u10`/`v10`, `t2m`; engineered features add temporal
-  history, wind speed, and day-of-year seasonality.
-
-### Data Acquisition (ECMWF / CDS API)
-1. Configure a CDS API key.
-2. `python experiments/data_prep/download_full_data.py` — primary dataset.
-3. `python experiments/data_prep/download_chunked.py` — resilient monthly-partitioned download.
-4. `python experiments/verify_env.py` — validate dependencies and data presence.
-
----
-
-## Reproducibility
-
-Run everything from the repository root.
+Requires Python 3.10. Versions are pinned to the environment that produced the
+results; for a CUDA build of torch, follow the comment in `requirements.txt`.
 
 ```bash
-pip install -r requirements.txt
-python experiments/verify_env.py     # check env + data
-python experiments/gulf_pm10/train_model.py    # train (3-way split, seeded)
-python experiments/gulf_pm10/benchmark.py       # evaluate on held-out 2007 test set
-python experiments/gulf_pm10/ablation.py        # reproduce the configuration comparison
+pip install -r requirements-dev.txt
+python experiments/verify_env.py
+pytest
 ```
 
-Configuration (paths, split years, model size, features, physics constants) lives in
-`configs/default_config.yaml`; paths resolve relative to the repo root. A fixed seed
-makes runs reproducible. Artifacts: `results/best_pi_gnn.pth` (checkpoint),
-`results/feature_stats.json` (train-fit normalisation), `results/benchmark_summary.json`.
+The tests are synthetic and need no data. Phase 1 runs on the committed Gulf sample:
 
----
-
-## Repository Structure
-
+```bash
+python experiments/gulf_pm10/train_model.py
+python experiments/gulf_pm10/benchmark.py
 ```
-repo/
-├── README.md                 # This document
-├── requirements.txt          # Dependencies
-├── configs/default_config.yaml
-├── src/                      # Core PI-GNN library
-│    ├── models/pi_gnn.py     # PIDustModel (multi-hop, residual head, norm buffers)
-│    ├── layers/flux.py       # PhysicsFluxLayer (wind-projected message passing)
-│    ├── physics/loss.py      # Advection residual + mass-conservation diagnostic
-│    ├── training/dataset.py  # GraphDustDataset (history/features) + train-only stats
-│    ├── training/trainer.py  # Homoscedastic-weighted training loop
-│    └── utils/graph.py       # Grid → graph (4/8-neighbour, geo-oriented positions)
-├── experiments/
-│    ├── train_model.py       # Training entry point (3-way split, seeded)
-│    ├── benchmark.py         # Held-out evaluation suite
-│    ├── ablation.py          # Configuration comparison (baseline vs enhanced vs 6 h)
-│    ├── debug_loss.py        # Physics-residual inspection utility
-│    ├── verify_env.py        # Environment + data validator
-│    └── download_*.py        # CDS/ERA5 data acquisition
-├── notebooks/                # Data exploration
-├── results/                  # Checkpoint, stats, figures, benchmark summary
-└── diagrams/architecture.md  # Detailed architecture / equations
+
+### Data for phases 2 and 3
+
+The Saudi datasets total about 17 GB and are not in the repository. Scripts look
+for them under `DUST_DATA_ROOT`, which defaults to `data/`:
+
+```bash
+export DUST_DATA_ROOT=/path/to/data      # PowerShell: $env:DUST_DATA_ROOT = "..."
 ```
+
+| Data | Source | Script |
+|---|---|---|
+| CAMS EAC4 PM10/PM2.5 and ERA5 surface fields, 2003–2024 | Copernicus ADS / CDS | raw files merged by `data_prep/build_saudi_dataset.py`; `data_prep/download_wide_domain.py` fetches the same products for a wider domain |
+| ERA5 emission drivers and pressure levels | Copernicus CDS | `data_prep/download_era5_emission.py`, `data_prep/download_era5_levels.py` |
+| METAR visibility and present weather | Iowa Environmental Mesonet (no account needed) | `data_prep/download_metar_saudi.py` |
+| MODIS MAIAC aerosol optical depth | NASA Earthdata | `data_prep/download_maiac.py`, then `data_prep/build_erodibility_map.py` |
+
+The Copernicus downloads need an API key in `~/.cdsapirc`; MAIAC needs an Earthdata
+token in `~/.edl_token`. Then, for example:
+
+```bash
+python -u experiments/station_dust/train_station_dust.py --epochs 25 --interior-only --daily --obs-input
+python -u experiments/station_dust/baselines_station.py
+```
+
+## Citing the data
+
+ERA5 and CAMS data are generated using Copernicus Climate Change Service and
+Copernicus Atmosphere Monitoring Service information. METAR observations come from
+the Iowa Environmental Mesonet ASOS archive, and MAIAC AOD (MCD19A2) from NASA's
+LP DAAC.
+
+## License
+
+[MIT](LICENSE)
