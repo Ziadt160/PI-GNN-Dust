@@ -1,0 +1,27 @@
+name: tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+          cache: pip
+          cache-dependency-path: requirements*.txt
+
+      # CPU torch first: requirements.txt then sees torch==2.5.1 as satisfied
+      # instead of pulling the ~2 GB CUDA wheel.
+      - name: Install dependencies
+        run: |
+          pip install torch==2.5.1 --index-url https://download.pytorch.org/whl/cpu
+          pip install -r requirements.txt "pytest>=8.0"
+
+      - name: Run tests
+        run: pytest

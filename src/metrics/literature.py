@@ -107,7 +107,7 @@ REFERENCES = [
                 "feature importance says it cannot serve as an input (5%); "
                 "(3) ERA5 Z/U/V/W/PV/Q/T at 250/500/700/850/900 hPa -- we are "
                 "surface-only; (4) a domain covering the whole Sahara and Arabia, "
-                "which is the wide-domain hypothesis already in HANDOVER.md. "
+                "which is the wide-domain hypothesis already in docs/research_log.md. "
                 "Integrated gradients rank lower-tropospheric winds, AOD and SLP "
                 "highest. Their misclassified events are the locally-driven ones, "
                 "mirroring our finding that 42% of storms are imported.",
@@ -366,7 +366,7 @@ REFERENCES = [
         "metrics": {"R_CAMS_vs_stations": 0.593, "R_DeepCAMS_vs_stations": 0.597},
         "comparable": False,
         "verified": "snippet",
-        "note": "Why HANDOVER.md says do not downscale yet: tripling the resolution "
+        "note": "Why docs/research_log.md says do not downscale yet: tripling the resolution "
                 "moved correlation against stations by 0.004. Sharpening a field "
                 "that is 15-49x too low during storms sharpens the error. Fix the "
                 "bias first -- see the Sarafian 2025 entry, which is the same data "

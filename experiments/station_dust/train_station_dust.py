@@ -745,7 +745,7 @@ def main():
     print("\nRead DOWN the SEDI column, ACROSS the TS column.")
     print("  TS, ETS, POD and FAR all fall with the base rate whether or not the")
     print("  forecast got worse, so they compare models at ONE threshold and")
-    print("  nothing else. Verified in experiments/verify_metrics.py: at constant")
+    print("  nothing else. Verified in tests/test_metrics.py: at constant")
     print("  forecast quality TS drops 11.4x from the `dusty` to the `severe`")
     print("  grade while SEDI does not move at all.")
     print("\nreference points, with their base rates, since TS without one is meaningless:")
