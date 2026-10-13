@@ -3,6 +3,7 @@ __pycache__/
 *.py[cod]
 *.egg-info/
 .ipynb_checkpoints/
+.pytest_cache/
 
 # Environments
 .venv/
@@ -11,15 +12,35 @@ env/
 
 # OS / editor
 .DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Claude Code worktrees and local settings
+.claude/
 
 # credentials
 .openaq_key
+.edl_token
+.cdsapirc
 *.key
 .env
 
+# Raw data: tens of GB, fetched by experiments/data_prep/download_*.py.
+# Only the small 2003-2007 Gulf sample in data/*.nc is committed.
+data/ALL DATA*/
+data/**/*.rar
+data/**/*.zip
+*.rar
+
+# Checkpoints outside results/ are always strays from an interactive session.
+/*.pth
+/*.pt
+src/**/*.pth
+
 # Throwaway run artifacts: smoke tests and ablation arms overwrite these.
 # Real checkpoints are committed deliberately, by name.
-results/smoke_*.json
+results/*smoke*.json
 results/ablation/
 results/preds/station_*.npz
 results/station_model_*_*h.pt
