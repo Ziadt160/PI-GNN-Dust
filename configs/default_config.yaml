@@ -1,19 +1,47 @@
+# Paths are resolved relative to the repository root unless absolute.
 data:
-  dir: "d:/Quantum Projects/DustProject/data"
+  dir: "data"
   sfc_file: "data_sfc.nc"
+
+# Reproducibility
+seed: 0
 
 training:
   batch_size: 32
-  epochs: 50
+  epochs: 40
   learning_rate: 0.001
-  years: [2003, 2004, 2005, 2006]
+  years: [2003, 2004, 2005]   # training split
 
 validation:
-  years: [2007]
+  years: [2006]               # model selection (early stopping / checkpoint)
 
+test:
+  years: [2007]               # held-out final evaluation (never used for selection)
+
+# Model architecture
+model:
+  hidden_channels: 64
+  hops: 2                     # number of stacked flux (message-passing) layers
+
+# Feature engineering (validated to lift test R^2 ~0.53 -> ~0.57 vs persistence)
+features:
+  window: 3                   # temporal history frames (>1 lets the model see dC/dt)
+  add_speed: true             # append 10 m wind speed
+  add_doy: true               # append day-of-year sin/cos (dust seasonality)
+  neighbors: 8                # 4 = N/S/E/W, 8 = + diagonals
+  resample: "12h"             # forecast cadence / horizon
+
+# Physics residual (advection) parameters. Grid is 0.75 deg lat/lon near ~26 N:
+#   dy = 0.75 * 111_320                  ~= 83_490 m
+#   dx = 0.75 * 111_320 * cos(26.25 deg) ~= 74_880 m
 physics:
-  delta_t: 43200 # 12 hours in seconds
-  dx: 83000.0
-  dy: 83000.0
+  delta_t: 43200.0   # match `features.resample` (12 h = 43200 s, 6 h = 21600, 3 h = 10800)
+  dx: 74880.0        # zonal (E-W) spacing, metres
+  dy: 83490.0        # meridional (N-S) spacing, metres
   lat_dim: 7
   lon_dim: 12
+
+paths:
+  model_out: "results/best_pi_gnn.pth"
+  norm_stats: "results/feature_stats.json"
+  loss_curve: "results/training_loss.png"

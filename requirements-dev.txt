@@ -1,0 +1,8 @@
+-r requirements.txt
+
+# Tests
+pytest>=8.0
+
+# Maps in experiments/saudi_pm10/make_visualizations.py and the exploration notebook
+cartopy==0.25.0
+jupyter==1.1.1

@@ -1,0 +1,7 @@
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+filterwarnings = [
+    # torch-geometric 2.7 imports its own deprecated distributed package.
+    'ignore:`torch_geometric.distributed` has been deprecated:DeprecationWarning',
+]
