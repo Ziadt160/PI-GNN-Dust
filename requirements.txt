@@ -1,12 +1,18 @@
-torch
-torch-geometric
-xarray
-numpy<2.0
-pandas
-matplotlib
-tqdm
-pyyaml
-netcdf4
-scikit-learn
-cartopy
-jupyter
+# Pinned to the environment the published results were produced in (Python 3.10).
+# For a CUDA build of torch, install it first from https://pytorch.org, e.g.
+#   pip install torch==2.5.1 --index-url https://download.pytorch.org/whl/cu121
+torch==2.5.1
+torch-geometric==2.7.0
+numpy==1.26.4
+scipy==1.15.3
+pandas==2.3.3
+xarray==2025.6.1
+netCDF4==1.7.4
+scikit-learn==1.7.2
+matplotlib==3.10.9
+PyYAML==6.0.3
+tqdm==4.70.1
+
+# Data download (ECMWF CDS/ADS) and the sequential job queue
+cdsapi==0.7.7
+psutil==7.2.2
