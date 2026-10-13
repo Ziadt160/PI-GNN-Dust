@@ -198,13 +198,13 @@ PY="C:/Users/20102/miniconda3/envs/dust_gpu/python.exe"
 **1. Finish the downloads** (ERA5 is ~12 h for 88 quarterly requests; consider
 narrowing to 2015–2024 to halve it):
 ```bash
-$PY -u experiments/download_wide_domain.py cams 2023 2024
-$PY -u experiments/download_wide_domain.py era5 2003 2024
+$PY -u experiments/data_prep/download_wide_domain.py cams 2023 2024
+$PY -u experiments/data_prep/download_wide_domain.py era5 2003 2024
 ```
 
 **2. Re-run the interrupted training** (never produced output):
 ```bash
-$PY -u experiments/train_station_dust.py --epochs 60 --obs-input --upwind-obs \
+$PY -u experiments/station_dust/train_station_dust.py --epochs 60 --obs-input --upwind-obs \
     --interior-only --daily --transport --hidden 64 --buffer-rings 2 \
     --out results/full_buffer2.json
 ```

@@ -93,7 +93,7 @@ boundary flux) but is reported as a diagnostic.
 | **+ history window, wind speed, season, 2-hop, 8-neighbour** | **0.573** | **+9.9%** |
 | ↳ same model at **6-hourly** resolution | **0.713** | **+20.6%** |
 
-Reproduce with `python experiments/ablation.py`. The dominant levers are giving the
+Reproduce with `python experiments/gulf_pm10/ablation.py`. The dominant levers are giving the
 model **temporal context** (so it learns the tendency rather than copying the last
 frame) and, if a shorter horizon is acceptable, **finer temporal resolution** (the
 advection physics is only numerically valid when the CFL number is ≲ 1, which holds
@@ -103,7 +103,7 @@ at 6 h but not 12 h).
 
 To check whether the graph + physics machinery is justified, every method is
 evaluated on the identical test set, target, and node features
-(`python experiments/classical_baselines.py`):
+(`python experiments/gulf_pm10/classical_baselines.py`):
 
 | Method | MSE | R² | Skill vs persistence |
 | :--- | :---: | :---: | :---: |
@@ -157,8 +157,8 @@ Ordered by expected impact (see commit history / ablation for what is already do
 
 ### Data Acquisition (ECMWF / CDS API)
 1. Configure a CDS API key.
-2. `python experiments/download_full_data.py` — primary dataset.
-3. `python experiments/download_chunked.py` — resilient monthly-partitioned download.
+2. `python experiments/data_prep/download_full_data.py` — primary dataset.
+3. `python experiments/data_prep/download_chunked.py` — resilient monthly-partitioned download.
 4. `python experiments/verify_env.py` — validate dependencies and data presence.
 
 ---
@@ -170,9 +170,9 @@ Run everything from the repository root.
 ```bash
 pip install -r requirements.txt
 python experiments/verify_env.py     # check env + data
-python experiments/train_model.py    # train (3-way split, seeded)
-python experiments/benchmark.py       # evaluate on held-out 2007 test set
-python experiments/ablation.py        # reproduce the configuration comparison
+python experiments/gulf_pm10/train_model.py    # train (3-way split, seeded)
+python experiments/gulf_pm10/benchmark.py       # evaluate on held-out 2007 test set
+python experiments/gulf_pm10/ablation.py        # reproduce the configuration comparison
 ```
 
 Configuration (paths, split years, model size, features, physics constants) lives in

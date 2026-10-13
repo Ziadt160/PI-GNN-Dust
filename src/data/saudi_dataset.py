@@ -70,7 +70,7 @@ class DataConfig:
     erodibility_path: str = r"D:/Quantum Projects/DustProject/data/ALL DATA SAUDI/erodibility.nc"
     # Boundary-layer stability from ERA5 pressure levels (see src.physics.stability).
     # Off by default so every result predating the levels download stays reproducible;
-    # `experiments/ablation_levels.py` is what turns it on and measures the difference.
+    # `experiments/station_dust/ablation_levels.py` is what turns it on and measures the difference.
     pressure_levels: bool = False
     levels_dir: str = r"D:/Quantum Projects/DustProject/data/ALL DATA SAUDI/levels"
     # Minimum share of the record the dynamic ERA5 drivers must cover before they
@@ -173,7 +173,7 @@ class SaudiFields:
             mo.close()
 
         self.driver_coverage = 0.0
-        # Observational dust-source map (built by experiments/build_erodibility_map.py).
+        # Observational dust-source map (built by experiments/data_prep/build_erodibility_map.py).
         if self.cfg.erodibility_path and os.path.exists(self.cfg.erodibility_path):
             er = xr.open_dataset(self.cfg.erodibility_path)
             drivers.erodibility = er["erodibility"].values.astype("float32")
@@ -228,7 +228,7 @@ class SaudiFields:
             return
         if not os.path.isdir(self.cfg.levels_dir):
             self._log(f"  NOTE: pressure levels requested but {self.cfg.levels_dir} "
-                      f"does not exist -- run experiments/download_era5_levels.py. "
+                      f"does not exist -- run experiments/data_prep/download_era5_levels.py. "
                       f"Continuing WITHOUT the stability block.")
             return
 

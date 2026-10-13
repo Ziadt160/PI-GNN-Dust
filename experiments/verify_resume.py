@@ -18,7 +18,7 @@ sys.argv = ["x"]
 import importlib.util
 
 spec = importlib.util.spec_from_file_location(
-    "tsd", os.path.join("experiments", "train_station_dust.py"))
+    "tsd", os.path.join("experiments", "station_dust", "train_station_dust.py"))
 tsd = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(tsd)
 

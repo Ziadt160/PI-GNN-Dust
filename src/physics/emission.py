@@ -9,7 +9,7 @@ roughness input alone is worth ~+18% TS at every lead day.
 `saudi_merged.nc` contains none of the required surface properties, so every
 driver here has two paths:
 
-  * **measured**  -- the ERA5 field, when `experiments/download_era5_emission.py`
+  * **measured**  -- the ERA5 field, when `experiments/data_prep/download_era5_emission.py`
     has been run (`zust`, `swvl1`, `fsr`, `lai_*`, `blh`);
   * **proxy**     -- a documented approximation from what the merged file already
     has (`u10`, `v10`, `tp`), used so the pipeline runs before/without those
