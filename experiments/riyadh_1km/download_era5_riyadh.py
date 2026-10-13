@@ -24,7 +24,11 @@ import numpy as np
 import xarray as xr
 import cdsapi
 
-OUT_DIR = r"D:/Quantum Projects/DustProject/data/ALL DATA RIYADH"
+REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+sys.path.insert(0, REPO_ROOT)
+from src import paths  # noqa: E402
+
+OUT_DIR = paths.RIYADH_DIR
 AREA = [25.1, 46.3, 24.3, 47.1]          # [North, West, South, East]
 VARIABLES = ["10m_u_component_of_wind", "10m_v_component_of_wind",
              "2m_temperature", "2m_dewpoint_temperature",

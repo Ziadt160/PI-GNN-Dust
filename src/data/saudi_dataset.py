@@ -34,9 +34,11 @@ from torch_geometric.data import Data
 from src.physics import emission as emis
 from src.physics import stability as stab
 from src.physics import transport as trans
+from src import paths
+from src import paths
 
-MERGED_DEFAULT = r"D:/Quantum Projects/DustProject/data/ALL DATA SAUDI/saudi_merged.nc"
-EMISSION_DIR_DEFAULT = r"D:/Quantum Projects/DustProject/data/ALL DATA SAUDI/emission"
+MERGED_DEFAULT = paths.SAUDI_MERGED
+EMISSION_DIR_DEFAULT = paths.EMISSION_DIR
 
 CADENCE_FACTOR = {"3h": 1, "6h": 2, "12h": 4}
 SECONDS_PER_STEP = {"3h": 10800.0, "6h": 21600.0, "12h": 43200.0}
@@ -67,12 +69,12 @@ class DataConfig:
     divergence: bool = True          # div(VC) vs u.grad C in the transport term
     reference_mode: str = "euler"    # "euler" (AI-DUST, faithful) | "semilag" (CFL-stable)
     drag_partition: bool = False     # see src.physics.emission.compute_emission
-    erodibility_path: str = r"D:/Quantum Projects/DustProject/data/ALL DATA SAUDI/erodibility.nc"
+    erodibility_path: str = paths.ERODIBILITY
     # Boundary-layer stability from ERA5 pressure levels (see src.physics.stability).
     # Off by default so every result predating the levels download stays reproducible;
     # `experiments/station_dust/ablation_levels.py` is what turns it on and measures the difference.
     pressure_levels: bool = False
-    levels_dir: str = r"D:/Quantum Projects/DustProject/data/ALL DATA SAUDI/levels"
+    levels_dir: str = paths.LEVELS_DIR
     # Minimum share of the record the dynamic ERA5 drivers must cover before they
     # are used at all. A partial download is ignored rather than edge-padded,
     # which would silently present one year's values as two decades of drivers.

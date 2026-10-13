@@ -40,8 +40,12 @@ import urllib.request
 import numpy as np
 import xarray as xr
 
-MERGED = r"D:/Quantum Projects/DustProject/data/ALL DATA SAUDI/saudi_merged.nc"
-OUT = r"D:/Quantum Projects/DustProject/data/ALL DATA SAUDI/soilgrids_texture.nc"
+REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+sys.path.insert(0, REPO_ROOT)
+from src import paths  # noqa: E402
+
+MERGED = paths.SAUDI_MERGED
+OUT = paths.SOILGRIDS
 API = "https://rest.isric.org/soilgrids/v2.0/properties/query"
 
 PROPS = ("clay", "sand", "silt")

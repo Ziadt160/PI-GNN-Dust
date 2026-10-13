@@ -41,7 +41,11 @@ import tempfile
 import xarray as xr
 import cdsapi
 
-OUT_DIR = r"D:/Quantum Projects/DustProject/data/ALL DATA SAUDI/emission"
+REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+sys.path.insert(0, REPO_ROOT)
+from src import paths  # noqa: E402
+
+OUT_DIR = paths.EMISSION_DIR
 
 # Exactly the saudi_merged.nc footprint: lat 15.18..33.18, lon 33.80..56.30 @ 0.75 deg.
 AREA = [33.18, 33.80, 15.18, 56.30]   # [North, West, South, East]

@@ -45,7 +45,11 @@ import urllib.parse
 import urllib.request
 from datetime import date, timedelta
 
-OUT_DIR = r"D:/Quantum Projects/DustProject/data/ALL DATA SAUDI/maiac"
+REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+sys.path.insert(0, REPO_ROOT)
+from src import paths  # noqa: E402
+
+OUT_DIR = paths.MAIAC_DIR
 CMR = "https://cmr.earthdata.nasa.gov/search/granules.json"
 SHORT_NAME, VERSION = "MCD19A2", "061"
 
@@ -132,7 +136,7 @@ def cams_event_days(days):
     """
     import numpy as np
     import xarray as xr
-    merged = r"D:/Quantum Projects/DustProject/data/ALL DATA SAUDI/saudi_merged.nc"
+    merged = paths.SAUDI_MERGED
     ds = xr.open_dataset(merged)
     mask = ds.valid_mask.values.astype(bool)
     pm = ds.pm10.values[:, mask] * 1e9

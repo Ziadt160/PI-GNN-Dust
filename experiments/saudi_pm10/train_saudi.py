@@ -30,8 +30,9 @@ REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 sys.path.insert(0, REPO_ROOT)
 from src.layers.flux import PhysicsFluxLayer
 from src.utils.graph import build_masked_graph
+from src import paths
 
-MERGED = r"D:/Quantum Projects/DustProject/data/ALL DATA SAUDI/saudi_merged.nc"
+MERGED = paths.SAUDI_MERGED
 WINDOW = 3
 RESAMPLE = os.environ.get("SAUDI_RESAMPLE", "12h")
 EPOCHS = int(os.environ.get("SAUDI_EPOCHS", "30"))

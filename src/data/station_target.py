@@ -45,7 +45,9 @@ import os
 import numpy as np
 import pandas as pd
 
-METAR_DIR = r"D:/Quantum Projects/DustProject/data/ALL DATA SAUDI/metar"
+from src import paths
+
+METAR_DIR = paths.METAR_DIR
 MILES_TO_KM = 1.609344
 KOSCHMIEDER = 3.912
 

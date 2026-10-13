@@ -21,9 +21,11 @@ REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 sys.path.insert(0, REPO_ROOT)
 from src.metrics import aidust_metrics as M            # noqa: E402
 from src.metrics import literature                     # noqa: E402
+from src import paths                                  # noqa: E402
+from src import paths                                  # noqa: E402
 
 
-MERGED = r"D:/Quantum Projects/DustProject/data/ALL DATA SAUDI/saudi_merged.nc"
+MERGED = paths.SAUDI_MERGED
 
 
 def persistence_baseline(test_idxs, true, active):

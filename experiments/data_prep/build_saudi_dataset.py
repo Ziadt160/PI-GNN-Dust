@@ -15,12 +15,17 @@ Output: data/ALL DATA SAUDI/saudi_merged.nc with variables
 Run from the repository root:  python experiments/data_prep/build_saudi_dataset.py
 """
 import os
+import sys
 import numpy as np
 import xarray as xr
 import warnings
 warnings.filterwarnings("ignore")
 
-D = r"D:/Quantum Projects/DustProject/data/ALL DATA SAUDI"
+REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+sys.path.insert(0, REPO_ROOT)
+from src import paths  # noqa: E402
+
+D = paths.SAUDI_DIR
 OUT = os.path.join(D, "saudi_merged.nc")
 
 

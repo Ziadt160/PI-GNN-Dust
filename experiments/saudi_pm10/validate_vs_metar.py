@@ -42,9 +42,11 @@ import xarray as xr
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 sys.path.insert(0, REPO_ROOT)
 from src.metrics import aidust_metrics as M         # noqa: E402
+from src import paths                               # noqa: E402
+from src import paths                               # noqa: E402
 
-MERGED = r"D:/Quantum Projects/DustProject/data/ALL DATA SAUDI/saudi_merged.nc"
-METAR_DIR = r"D:/Quantum Projects/DustProject/data/ALL DATA SAUDI/metar"
+MERGED = paths.SAUDI_MERGED
+METAR_DIR = paths.METAR_DIR
 MILES_TO_KM = 1.609344
 DUST_CODE_RE = "DS|SS|BLDU|BLSA|DU|SA|PO"
 

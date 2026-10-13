@@ -4,6 +4,7 @@ animation (real CAMS PM10/PM2.5 + ERA5 winds). Outputs to results/figures/.
 Run:  python -u experiments/saudi_pm10/make_visualizations.py
 """
 import os
+import sys
 import warnings
 warnings.filterwarnings("ignore")
 import numpy as np
@@ -18,7 +19,10 @@ import cartopy.feature as cfeature
 REPO = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 OUT = os.path.join(REPO, "results", "figures")
 os.makedirs(OUT, exist_ok=True)
-MERGED = r"D:/Quantum Projects/DustProject/data/ALL DATA SAUDI/saudi_merged.nc"
+sys.path.insert(0, REPO)
+from src import paths  # noqa: E402
+
+MERGED = paths.SAUDI_MERGED
 DUST_CMAP = "YlOrBr"
 
 # ---------------- Verified results (Saudi test 2021-24, PM10) ----------------

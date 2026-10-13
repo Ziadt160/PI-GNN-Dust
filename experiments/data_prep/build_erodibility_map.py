@@ -51,10 +51,14 @@ import numpy as np
 import pandas as pd
 import xarray as xr
 
-MAIAC_DIR = r"D:/Quantum Projects/DustProject/data/ALL DATA SAUDI/maiac/validation"
-MERGED = r"D:/Quantum Projects/DustProject/data/ALL DATA SAUDI/saudi_merged.nc"
-EMIS_DIR = r"D:/Quantum Projects/DustProject/data/ALL DATA SAUDI/emission"
-OUT = r"D:/Quantum Projects/DustProject/data/ALL DATA SAUDI/erodibility.nc"
+REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+sys.path.insert(0, REPO_ROOT)
+from src import paths  # noqa: E402
+
+MAIAC_DIR = os.path.join(paths.MAIAC_DIR, "validation")
+MERGED = paths.SAUDI_MERGED
+EMIS_DIR = paths.EMISSION_DIR
+OUT = paths.ERODIBILITY
 
 # MODIS sinusoidal projection constants.
 R_EARTH = 6371007.181
@@ -120,7 +124,6 @@ def main():
     dlon = float(lon_g[1] - lon_g[0])
 
     # ERA5 friction velocity and its moisture-corrected threshold.
-    sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
     from src.physics import emission as E
     parts = [xr.open_dataset(f) for f in sorted(glob.glob(os.path.join(EMIS_DIR, "era5_emis_*.nc")))]
     ed = xr.concat(parts, dim="valid_time").sortby("valid_time")

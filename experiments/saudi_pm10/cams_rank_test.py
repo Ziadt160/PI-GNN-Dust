@@ -26,8 +26,12 @@ import pandas as pd
 import xarray as xr
 from scipy import stats
 
-MERGED = r"D:/Quantum Projects/DustProject/data/ALL DATA SAUDI/saudi_merged.nc"
-METAR = r"D:/Quantum Projects/DustProject/data/ALL DATA SAUDI/metar"
+REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+sys.path.insert(0, REPO_ROOT)
+from src import paths  # noqa: E402
+
+MERGED = paths.SAUDI_MERGED
+METAR = paths.METAR_DIR
 MILES_TO_KM = 1.609344
 KOSCHMIEDER = 3.912
 DUST = r"DS|SS|BLDU|BLSA|DU|SA|PO"

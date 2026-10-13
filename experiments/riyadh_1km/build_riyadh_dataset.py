@@ -12,6 +12,7 @@ See DATA.md for exactly which products to download.
 Run (after filling the loaders):  python -u experiments/riyadh_1km/build_riyadh_dataset.py
 """
 import os
+import sys
 import numpy as np
 import xarray as xr
 import warnings
@@ -22,7 +23,11 @@ LAT_MIN, LAT_MAX = 24.3, 25.1
 LON_MIN, LON_MAX = 46.3, 47.1
 RES_KM = 1.0
 # Big datasets live in the main project data dir (alongside ALL DATA SAUDI).
-RAW = r"D:/Quantum Projects/DustProject/data/ALL DATA RIYADH"
+REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+sys.path.insert(0, REPO_ROOT)
+from src import paths  # noqa: E402
+
+RAW = paths.RIYADH_DIR
 OUT = os.path.join(RAW, "riyadh_merged.nc")
 
 

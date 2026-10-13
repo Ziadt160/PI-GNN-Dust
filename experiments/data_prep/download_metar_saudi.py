@@ -34,6 +34,7 @@ Usage
 import argparse
 import json
 import os
+import sys
 import time
 import urllib.error
 import urllib.parse
@@ -41,8 +42,12 @@ import urllib.request
 
 import numpy as np
 
-OUT_DIR = r"D:/Quantum Projects/DustProject/data/ALL DATA SAUDI/metar"
-MERGED = r"D:/Quantum Projects/DustProject/data/ALL DATA SAUDI/saudi_merged.nc"
+REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+sys.path.insert(0, REPO_ROOT)
+from src import paths  # noqa: E402
+
+OUT_DIR = paths.METAR_DIR
+MERGED = paths.SAUDI_MERGED
 
 # The wide domain (12-38 N, 30-60 E) spans twelve national networks. Restricting
 # to Saudi left the model with 26 stations and, worse, no observations at all in

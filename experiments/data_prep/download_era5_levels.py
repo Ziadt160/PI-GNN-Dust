@@ -81,7 +81,11 @@ import concurrent.futures as cf
 import xarray as xr
 import cdsapi
 
-OUT_DIR = r"D:/Quantum Projects/DustProject/data/ALL DATA SAUDI/levels"
+REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+sys.path.insert(0, REPO_ROOT)
+from src import paths  # noqa: E402
+
+OUT_DIR = paths.LEVELS_DIR
 
 # Exactly the saudi_merged.nc footprint, so no regridding downstream.
 AREA = [33.18, 33.80, 15.18, 56.30]   # [North, West, South, East]

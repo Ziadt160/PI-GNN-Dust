@@ -47,7 +47,11 @@ import zipfile
 import cdsapi
 import xarray as xr
 
-OUT = r"D:/Quantum Projects/DustProject/data/ALL DATA WIDE"
+REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+sys.path.insert(0, REPO_ROOT)
+from src import paths  # noqa: E402
+
+OUT = paths.WIDE_DIR
 
 # [North, West, South, East] -- includes Mesopotamia, Syria, Kuwait, the Peninsula.
 AREA = [38.0, 30.0, 12.0, 60.0]
